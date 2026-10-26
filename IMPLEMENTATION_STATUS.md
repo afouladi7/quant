@@ -41,6 +41,27 @@ and scripts were run on a real Kubernetes cluster (kind, Kubernetes 1.34) whose 
 | `podman build --network=none` backend from the wheelhouse (19 wheels incl. psycopg) | OK; image imports the app as UID 54321 with a read-only root |
 | TCP suites (raw TCP, dev; HTTP, in-container) | results recorded in `docs/networking-guide.md` §8 |
 
+## Educational upgrade (2026-10-26)
+
+| Addition | What it is | Verified by |
+|---|---|---|
+| Learning path | 18 lessons in three levels (beginner → advanced), each with explanation, key ideas, formula, a “try it” link into the app and a quiz; progress saved per browser | Vitest: lesson integrity (unique ids, valid answers, real routes), quiz scoring and completion |
+| Glossary + hover terms | ~75 terms with plain and technical definitions; `<Term>` tooltips on hover/keyboard focus across all pages | Vitest: search filter, keyboard-focus tooltip, “see it” links resolve |
+| Panel help & “Start here” | A “?” explanation on every panel (29 in the original modules plus all new pages) and a 3–4 step starter on each page | Screenshots |
+| Order book playground | Sandbox book on the real matching engine; orders as You/Alice/Bob/Carol; numbered explanation of every matching decision in engine order (price-time priority, partial fills, limits, self-trade prevention, resting) | 4 pytest tests (explanations match actual fills and ordering) + Vitest |
+| Risk & returns lab | Seeded GBM paths; returns, volatility, Sharpe, max drawdown, historical/parametric VaR, expected shortfall, skew/kurtosis, histogram vs. normal curve, optional crash days; two-asset diversification | 4 pytest tests (formula consistency, determinism, fat tails raise kurtosis, ρ = ±1 limits) + Vitest |
+| Options lab | Black-Scholes with dividend yield, Greeks (trader units), payoff/value and time-decay charts, implied volatility, put-call parity, CRR binomial convergence and American price | 4 pytest tests (Hull textbook values 4.76/0.81, Greeks vs. finite differences, convergence, IV round-trip) + Vitest |
+| How it works | The journey of a click, a live inspector of this browser's real API calls, the backend event stream, a code map linked to GitHub, and an API explorer generated from OpenAPI | Vitest: inspector records a real call with its body |
+| Navigation | Sidebar grouped Start / Markets / Quant labs / Technology with level badges; “Where should I start?” chooser on Home; the simulation clock bar only on pages that use it | Vitest + screenshots (1400 px and 390 px) |
+
+Commands (final code): `scripts/test-all.sh` → backend **105 passed** (3 PostgreSQL tests skipped without a database),
+frontend typecheck clean and **30 passed**, manifests **21 passed**; `scripts/build-images.sh` and `scripts/run-local.sh up`
+(both auto-detected the host's podman from inside the toolbox) → `scripts/verify.sh --url http://127.0.0.1:8080` **18 passed,
+1 skipped**; new endpoints and lesson routes answer through nginx.
+
+Not done: the published quay images (`components/images`) still pin the previous release; run `scripts/release-images.sh`
+to publish this version. Not re-tested on Kubernetes after these changes (no manifest changes were needed).
+
 ## Bugs found and fixed during verification
 
 - `install.sh`: image overrides did not match after overlay renaming; untagged `host:port/…` references were

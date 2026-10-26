@@ -184,7 +184,37 @@ risk. The *Risk scenarios* table quantifies:
   illustrative 8% annual volatility; doubling volatility doubles VaR for any
   exposure that remains.
 
-## 12. What MarketLab deliberately leaves out
+## 12. Returns, volatility and risk statistics (Risk & returns lab)
+
+Prices are simulated with geometric Brownian motion, S(t+1) = S(t)·exp((μ − σ²/2)Δt + σ√Δt·Z), Δt = 1/252, seeded.
+
+- **Daily return** r = S_t / S_(t−1) − 1. **Annual volatility** = stdev(r) × √252.
+- **Annual return** (geometric) = (S_end / S_start)^(252/days) − 1.
+- **Sharpe ratio** = (mean(r) × 252 − risk-free) / annual volatility.
+- **Max drawdown**: the worst fall from a running peak.
+- **VaR(c)**: historical = the (1 − c) quantile of daily returns, as a loss; parametric = −(mean − z_c × stdev),
+  with z₉₅ = 1.645 and z₉₉ = 2.326. **Expected shortfall** = the average loss on days worse than VaR.
+- **Fat tails**: the optional crash days make extreme losses more frequent than a normal distribution predicts;
+  excess kurtosis rises and the bell-curve VaR becomes too optimistic.
+- **Diversification**: σ_p² = w₁²σ₁² + w₂²σ₂² + 2w₁w₂ρσ₁σ₂. With ρ < 1, portfolio risk is below the weighted average;
+  with ρ = −1 a mix exists with zero risk.
+
+## 13. Options (Options lab)
+
+- A **call** is the right to buy at the strike K; a **put**, the right to sell. Payoff at expiry: max(S − K, 0) and
+  max(K − S, 0). Premium = intrinsic value + time value.
+- **Black-Scholes(-Merton)** with dividend yield q: d1 = [ln(S/K) + (r − q + σ²/2)T]/(σ√T), d2 = d1 − σ√T,
+  C = S·e^(−qT)·N(d1) − K·e^(−rT)·N(d2), P = K·e^(−rT)·N(−d2) − S·e^(−qT)·N(−d1). T = days/365.
+- **Greeks** (as displayed): delta ∂V/∂S; gamma ∂²V/∂S²; vega per 1 volatility point; theta per calendar day;
+  rho per 1 percentage point of rates. Verified in tests against finite differences.
+- **Put-call parity**: C − P = S·e^(−qT) − K·e^(−rT).
+- **Implied volatility**: the σ that reproduces a given price (bisection between 0.01% and 500%).
+- **Binomial tree** (Cox-Ross-Rubinstein): converges to Black-Scholes as steps increase; with early exercise it
+  prices American options.
+- N(d2) is a *risk-neutral* probability of finishing in the money, not a forecast. The model assumes constant
+  volatility and rates and no trading costs.
+
+## 14. What MarketLab deliberately leaves out
 
 Real exchange rules and auctions, market impact beyond book depth, financing and
 interest carry (beyond the modelled basis), clearing and settlement cycles,

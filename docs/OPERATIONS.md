@@ -125,6 +125,8 @@ OpenAPI schema: `/api/v1/openapi.json` (the CDN-based Swagger UI is disabled for
 | `/api/v1/portfolio*`, `/api/v1/hedges/*` | portfolio, exposure, risk, futures (spec, basis shock, advance days), hedge proposals & execution, hedge rule, guided GBP scenario |
 | `/api/v1/tcp/*` | echo target, benchmark runs, suites (Preset 5), CSV export, cancel |
 | `/api/v1/history/*` | archived events, trades, benchmarks, instances (persistent mode) |
+| `/api/v1/playground*` | order book playground: state, orders (with step-by-step explanations), cancel, reset |
+| `/api/v1/quant/*` | options pricing and implied volatility; risk simulation and two-asset diversification (stateless) |
 
 Errors always use `{"error": {"code", "message", "details"}}`. Decimals are JSON strings.
 

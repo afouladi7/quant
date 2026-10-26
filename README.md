@@ -4,11 +4,19 @@ An interactive laboratory for understanding how financial markets work, how trad
 software networking affects performance. **Every trade and price in the simulator is hypothetical.** No real
 orders, funds, accounts or market data are involved.
 
-| Module | What you can do |
-|---|---|
-| **Market Maker Simulator** | Watch a market maker quote MARKETLAB-100, trade against customers (yours and synthetic ones) through a real price-time-priority matching engine, and follow inventory, cash, realized/unrealized P&L and fees. Inventory skews the quotes. Guided presets: *Spread Capture*, *Inventory Risk*. |
-| **FX Routing & Hedging** | Route GBP/USD, EUR/USD and USD/JPY orders to three independent books (A, B, C) or let the smart router split them by price, depth, fees and latency. Six reproducible scenarios. Then hedge a fund's GBP exposure with an offset FX trade or an illustrative GBP future, and compare risk scenarios before and after. |
-| **TCP Performance Lab** | Run real benchmarks against the backend itself: complete vs. 499+1 split messages, cold vs. pre-established connections, useful early work, TCP_NODELAY. Distributions, percentiles, phase breakdowns and CSV export. |
+Built for every level: start with the **learning path** (18 short lessons with quizzes), hover any underlined term for a
+definition, and press **?** on any panel to learn what it shows.
+
+| Area | Level | What you can do |
+|---|---|---|
+| **Learning path & glossary** | All | Lessons from “what is a bid?” to Black-Scholes and backend design, each with a hands-on exercise and a quiz; about 75 terms defined in plain English. |
+| **Order book playground** | Beginner | Place orders as yourself, Alice, Bob or Carol and get a step-by-step explanation of how the matching engine handled each one. |
+| **Market maker** | Beginner | Watch a market maker quote, trade with customers through a price-time-priority matching engine, and track inventory, cash and P&L. Guided presets: *Spread Capture*, *Inventory Risk*. |
+| **FX routing & hedging** | Intermediate | Route currency orders to three independent books or let the smart router split them; six reproducible scenarios; hedge a fund's GBP exposure with an FX offset or an illustrative future and compare risk scenarios. |
+| **Risk & returns lab** | Intermediate | Simulate prices and measure returns, volatility, drawdown, Sharpe ratio, historical vs. bell-curve VaR, fat tails, and diversification between two assets. |
+| **Options lab** | Advanced | Black-Scholes prices, the Greeks in plain English, payoff and time-decay charts, implied volatility, put-call parity and binomial-tree convergence. |
+| **TCP latency lab** | Advanced | Real benchmarks against the backend itself: complete vs. split messages, cold vs. reused connections, useful early work, percentiles, CSV export. |
+| **How it works** | All | Follow a click through the system, watch the browser's real API calls live, explore every endpoint, and jump to the source code. |
 
 Every view has a **Simple** (plain English) and a **Technical** (IDs, formulas, raw events, routing
 calculations, per-trial timings) presentation, driven by the same backend data. Status: see

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 
 from app.api import health, metrics
-from app.api.v1 import events, fx, history, marketmaker, portfolio, simulation, system, tcplab
+from app.api.v1 import events, fx, history, marketmaker, playground, portfolio, quant, simulation, system, tcplab
 from app.config import APP_VERSION, Settings, get_settings
 from app.core.errors import install_error_handlers
 from app.logging_setup import configure_logging
@@ -91,6 +91,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1.include_router(portfolio.router)
     v1.include_router(tcplab.router)
     v1.include_router(history.router)
+    v1.include_router(playground.router)
+    v1.include_router(quant.router)
     app.include_router(health.router)
     app.include_router(metrics.router)
     app.include_router(v1)

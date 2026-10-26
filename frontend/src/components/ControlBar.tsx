@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { useStream } from "../api/stream";
 import type { SimState, SimulationStatus } from "../api/types";
 import { useViewMode } from "../state/viewMode";
+import { HelpToggle } from "./learn";
 
 const SPEEDS = ["0.5", "1", "2", "5", "10"];
 
@@ -88,6 +89,12 @@ export function ControlBar() {
           )}
         </dl>
       )}
+      <HelpToggle label="What does the simulation clock do?">
+        <p><b>The simulation clock</b> makes time pass in the simulated market. While it runs, every tick (one simulated second)
+          the fair price drifts randomly, synthetic customers send orders, the market maker re-quotes and FX books refresh their prices.</p>
+        <p><b>Pause</b> freezes everything so you can look closely. <b>Reset</b> puts every module back to its starting state.
+          <b> Speed</b> makes ticks happen faster or slower. The guided demos pause the clock automatically so their steps are repeatable.</p>
+      </HelpToggle>
       {error && (
         <p className="error-text" role="alert">
           {error}

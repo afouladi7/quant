@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { pfApi, type HedgeRequest, type HedgeRule, type Portfolio, type Proposal, type Risk } from "../api/fx";
 import { LineChart } from "../components/charts";
 import { EventTimeline } from "../components/EventTimeline";
+import { StartHere, Term } from "../components/learn";
 import { ErrorNote, Explain, JsonBlock, Loading, Panel, SimpleOnly, Stat, StatusBadge, TechOnly, useAction } from "../components/ui";
 import { fmtMoney, fmtNum, fmtSignedMoney, shortTime } from "../lib/format";
 import { useLive } from "../lib/useLive";
@@ -23,6 +24,11 @@ export function Hedging() {
   const s = pf.data;
   return (
     <>
+      <StartHere title="Start here: hedging in five steps" steps={[
+        <>Press <b>↺ Reset scenario</b>, then <b>Run step</b> five times in the box below.</>,
+        <>After step 2, look at <b>Currency exposure</b>: the fund gains or loses with the pound (<Term id="exposure">exposure</Term>).</>,
+        <>After step 4, exposure is near zero: the <Term id="hedge">hedge</Term> offsets it. Compare the columns in <b>Risk scenarios</b>.</>,
+      ]} />
       <ErrorNote error={pf.error} />
       <Guided s={s} onChange={refresh} />
       <Summary s={s} />
@@ -64,7 +70,7 @@ function Guided({ s, onChange }: { s: Portfolio; onChange: () => void }) {
     onChange();
   });
   return (
-    <Panel title="Guided scenario: hedging a GBP position" id="pf-guided"
+    <Panel title="Guided scenario: hedging a GBP position" id="pf-guided" help={<p>A five-step story: the fund buys £1m, the pound moves, the fund hedges, the pound moves again. Compare the profit or loss with and without the hedge.</p>}
       actions={<button type="button" className="btn" disabled={busy} onClick={() => run(async () => { await pfApi.guidedReset(); setLog([]); onChange(); })}>↺ Reset scenario</button>}>
       <SimpleOnly>
         <p className="small">
@@ -101,7 +107,7 @@ function Guided({ s, onChange }: { s: Portfolio; onChange: () => void }) {
 function Summary({ s }: { s: Portfolio }) {
   const b = s.pnl_breakdown;
   return (
-    <Panel title="Fund portfolio" id="pf-summary" actions={<span className="small muted">valued in {s.valuation_currency} · {s.notice}</span>}>
+    <Panel title="Fund portfolio" id="pf-summary" help={<><p>The fund's whole position valued in US dollars. <Term id="exposure">Gross exposure</Term> adds up all currency risks regardless of direction; net exposure lets longs and shorts offset.</p><p>Cash balances are what the fund holds in each currency; futures are contracts, not cash, so they never appear here.</p></>} actions={<span className="small muted">valued in {s.valuation_currency} · {s.notice}</span>}>
       <div className="stats">
         <Stat label="Equity" value={fmtMoney(s.equity_usd, 0)} raw={s.equity_usd} />
         <Stat label="Total P&L" value={fmtSignedMoney(s.total_pnl_usd)} tone={s.total_pnl_usd} hint={`vs. initial ${fmtMoney(s.initial_equity_usd, 0)}`} raw={s.total_pnl_usd} />
@@ -128,7 +134,7 @@ function Summary({ s }: { s: Portfolio }) {
 function Exposure({ s }: { s: Portfolio }) {
   const gbp = s.exposures.find((e) => e.currency === "GBP")!;
   return (
-    <Panel title="Currency exposure" id="pf-exposure">
+    <Panel title="Currency exposure" id="pf-exposure" help={<p>How much the fund would gain or lose per currency if that currency moved 1%. Spot balances and <Term id="future">futures</Term> both count. A <Term id="hedge">hedged</Term> fund shows net exposure near zero.</p>}>
       <table className="table compact">
         <thead><tr><th>Ccy</th><th className="num">Spot balance</th><th className="num">Futures equiv.</th><th className="num">Net exposure</th><th className="num">USD value</th><th className="num">P&L if +1%</th></tr></thead>
         <tbody>
@@ -174,7 +180,7 @@ function HedgePanel({ s, onChange }: { s: Portfolio; onChange: () => void }) {
   };
   const pending = proposal ?? s.proposals.find((p) => p.status === "proposed") ?? null;
   return (
-    <Panel title="Hedge" id="pf-hedge">
+    <Panel title="Hedge" id="pf-hedge" help={<><p><b>Rule-based</b>: say what exposure you want (usually 0) and the app calculates the trade. <b>Manual</b>: choose the direction and size yourself.</p><p>Nothing trades until you approve the proposal; it shows the before/after and the assumptions first.</p></>}>
       <form className="order-form" onSubmit={propose}>
         <div className="segmented" role="group" aria-label="Hedge mode">
           <button type="button" aria-pressed={mode === "rule"} onClick={() => setMode("rule")}>Rule-based</button>
@@ -236,7 +242,7 @@ function ProposalCard({ p, onExecuted }: { p: Proposal; onExecuted: (p: Proposal
 
 function RiskTable({ r }: { r: Risk }) {
   return (
-    <Panel title="Risk scenarios: unhedged vs. hedged" id="pf-risk" actions={<span className="small muted">GBP/USD {r.spot} · future {r.futures_price}</span>}>
+    <Panel title="Risk scenarios: unhedged vs. hedged" id="pf-risk" help={<p>“What if” scenarios computed on the current positions: currency moves, higher volatility (<Term id="var">VaR</Term>), a half-filled hedge, <Term id="basis_risk">basis risk</Term> and futures expiry. Compare the two columns to see what the hedge protects against, and what it doesn't.</p>} actions={<span className="small muted">GBP/USD {r.spot} · future {r.futures_price}</span>}>
       <div className="scroll">
         <table className="table">
           <thead><tr><th>Scenario</th><th className="num">Without hedges</th><th className="num">With hedges</th><th>What it shows</th></tr></thead>
@@ -265,7 +271,7 @@ function Futures({ s, onChange }: { s: Portfolio; onChange: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   const { busy, error, run } = useAction();
   return (
-    <Panel title="GBP futures (illustrative contract)" id="pf-futures">
+    <Panel title="GBP futures (illustrative contract)" id="pf-futures" help={<p>The illustrative GBP <Term id="future">future</Term>. Its price is spot plus the <Term id="basis">basis</Term>, which shrinks to zero at expiry. Try a basis shock or advancing the calendar to see risks a futures hedge adds.</p>}>
       <p className="small muted">{f.spec.label}</p>
       <div className="stats">
         <Stat label="Futures price" value={f.price} hint={`bid ${f.bid} / ask ${f.ask}`} />
@@ -292,7 +298,7 @@ function RulePanel({ rule, onChange }: { rule: HedgeRule; onChange: () => void }
   const [r, setR] = useState<HedgeRule>(rule);
   const { busy, error, run } = useAction();
   return (
-    <Panel title="Automatic hedging rule" id="pf-rule">
+    <Panel title="Automatic hedging rule" id="pf-rule" help={<p>An automatic version of the rule-based hedge: after every trade or tick, if exposure drifts outside the tolerance, it proposes (and optionally executes) a hedge.</p>}>
       <p className="small">When enabled, the rule checks GBP exposure after every fund trade and each simulation tick. If it drifts beyond the tolerance, it proposes a hedge back to the target, and executes it only when auto-execute is on.</p>
       <form className="order-form" onSubmit={(e) => { e.preventDefault(); void run(async () => { await pfApi.putRule(r); onChange(); }); }}>
         <div className="form-row">
@@ -314,7 +320,7 @@ function RulePanel({ rule, onChange }: { rule: HedgeRule; onChange: () => void }
 
 function Records({ s }: { s: Portfolio }) {
   return (
-    <Panel title="Trades, hedge orders and fills" id="pf-records">
+    <Panel title="Trades, hedge orders and fills" id="pf-records" help={<p>Every fill, labelled as a normal trade or a hedge, and every hedge proposal with its outcome.</p>}>
       {s.fills.length === 0 ? <p className="empty">No fills yet.</p> : (
         <div className="scroll">
           <table className="table compact">

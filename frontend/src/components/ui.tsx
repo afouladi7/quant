@@ -1,15 +1,19 @@
 import { useState, type ReactNode } from "react";
 import type { Num } from "../lib/format";
+import { HelpToggle } from "./learn";
 import { signClass } from "../lib/format";
 import { useViewMode } from "../state/viewMode";
 
-export function Panel({ title, actions, children, className = "", id }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; id?: string }) {
+export function Panel({ title, actions, children, className = "", id, help }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; id?: string; help?: ReactNode }) {
   return (
     <section className={`panel ${className}`} aria-labelledby={id}>
-      {(title || actions) && (
+      {(title || actions || help) && (
         <div className="panel-head">
           {title && <h2 id={id}>{title}</h2>}
-          {actions && <div className="panel-actions">{actions}</div>}
+          <div className="panel-actions">
+            {actions}
+            {help && <HelpToggle>{help}</HelpToggle>}
+          </div>
         </div>
       )}
       {children}

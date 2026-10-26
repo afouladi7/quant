@@ -44,6 +44,7 @@ export function LineChart({
   height = 200,
   zeroLine = false,
   stepped = false,
+  endLabels = true,
 }: {
   title: string;
   series: Series[];
@@ -52,6 +53,8 @@ export function LineChart({
   height?: number;
   zeroLine?: boolean;
   stepped?: boolean;
+  /** Turn off when series converge at the right edge (labels would collide); the legend and tooltip carry identity. */
+  endLabels?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -136,7 +139,7 @@ export function LineChart({
           return (
             <g key={s.key}>
               <circle className={`dot s${s.slot}`} cx={sx(last.x)} cy={sy(last.y)} r={4} />
-              {series.length <= 4 && (
+              {endLabels && series.length <= 4 && (
                 <text className="end-label" x={sx(last.x) + 8} y={sy(last.y)} dominantBaseline="middle">
                   {yFormat(last.y)}
                 </text>
@@ -258,5 +261,71 @@ export function BarList({ items, format = (v) => String(v) }: { items: { label: 
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Histogram (bars with 2px gaps) with an optional reference curve, e.g. the normal distribution. */
+export function Histogram({
+  title, bins, curve, xFormat = (v) => String(v), markers = [],
+}: {
+  title: string;
+  bins: { from: number; to: number; count: number }[];
+  curve?: { x: number; y: number }[];
+  xFormat?: (v: number) => string;
+  markers?: { x: number; label: string }[];
+}) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<number | null>(null);
+  if (!bins.length) return null;
+  const height = 220, pad = { l: 40, r: 12, t: 16, b: 28 };
+  const iw = Math.max(10, width - pad.l - pad.r), ih = height - pad.t - pad.b;
+  const x0 = bins[0].from, x1 = bins[bins.length - 1].to;
+  const yMax = Math.max(...bins.map((b) => b.count), ...(curve ?? []).map((c) => c.y)) * 1.1 || 1;
+  const sx = (v: number) => pad.l + ((v - x0) / (x1 - x0)) * iw;
+  const sy = (v: number) => pad.t + ih - (v / yMax) * ih;
+  const ticks = niceTicks(x0, x1, 5);
+  const yTicks = niceTicks(0, yMax, 3);
+  const h = hover === null ? null : bins[hover];
+  return (
+    <figure className="chart" ref={ref}>
+      <figcaption className="chart-title">{title}</figcaption>
+      {curve && (
+        <div className="legend" aria-hidden="true"><span><i className="key s1" />Observed days</span><span><i className="key s2" />Bell curve (normal)</span></div>
+      )}
+      <svg width={width} height={height} role="img" aria-label={`${title}: histogram`}>
+        {yTicks.map((t) => (
+          <g key={t}>
+            <line className="grid" x1={pad.l} x2={pad.l + iw} y1={sy(t)} y2={sy(t)} />
+            <text className="axis" x={pad.l - 6} y={sy(t)} textAnchor="end" dominantBaseline="middle">{t}</text>
+          </g>
+        ))}
+        {bins.map((b, i) => {
+          const bx = sx(b.from) + 1, bw = Math.max(1, sx(b.to) - sx(b.from) - 2);
+          const top = sy(b.count), r = Math.min(4, bw / 2, (pad.t + ih - top) / 2);
+          const base = pad.t + ih;
+          const d = b.count === 0 ? "" : `M${bx},${base} V${top + r} Q${bx},${top} ${bx + r},${top} H${bx + bw - r} Q${bx + bw},${top} ${bx + bw},${top + r} V${base} Z`;
+          return (
+            <g key={i}>
+              {d && <path d={d} className="bar s1" />}
+              <rect x={sx(b.from)} y={pad.t} width={Math.max(1, sx(b.to) - sx(b.from))} height={ih} fill="transparent"
+                onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />
+            </g>
+          );
+        })}
+        {curve && <path className="line s2" d={curve.map((c, i) => `${i ? "L" : "M"}${sx(c.x)},${sy(c.y)}`).join("")} />}
+        {markers.map((m) => (
+          <g key={m.label}>
+            <line className="marker-line" x1={sx(m.x)} x2={sx(m.x)} y1={pad.t} y2={pad.t + ih} />
+            <text className="axis" x={sx(m.x) + 4} y={pad.t + 10}>{m.label}</text>
+          </g>
+        ))}
+        {ticks.map((t) => <text key={t} className="axis" x={sx(t)} y={height - 8} textAnchor="middle">{xFormat(t)}</text>)}
+      </svg>
+      {h && (
+        <div className="tooltip" style={{ left: Math.min(sx(h.from) + 10, width - 180) }} role="status">
+          {xFormat(h.from)} to {xFormat(h.to)}: <b>{h.count} day{h.count === 1 ? "" : "s"}</b>
+        </div>
+      )}
+    </figure>
   );
 }

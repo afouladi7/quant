@@ -12,6 +12,7 @@ from app.core.ids import IdGenerator
 from app.events.bus import EventBus
 from app.fx.service import FXService
 from app.marketmaker.service import MarketMakerService
+from app.playground.service import Playground
 from app.portfolio.service import PortfolioService
 from app.persistence.repository import EventRepository, InMemoryEventRepository
 from app.persistence.sink import NullSink, PostgresSink
@@ -34,6 +35,7 @@ class AppContainer:
     tcp_server: TCPBenchServer
     tcplab: TCPLabService
     sink: NullSink | PostgresSink
+    playground: Playground
 
 
 def build_container(settings: Settings) -> AppContainer:
@@ -63,7 +65,7 @@ def build_container(settings: Settings) -> AppContainer:
     tcplab.on_finished = sink.record_benchmark
     return AppContainer(
         settings=settings, ids=ids, events=events, bus=bus, sim=sim, idempotency=IdempotencyStore(), mm=mm, fx=fx,
-        portfolio=portfolio, tcp_server=tcp_server, tcplab=tcplab, sink=sink,
+        portfolio=portfolio, tcp_server=tcp_server, tcplab=tcplab, sink=sink, playground=Playground(bus, ids),
     )
 
 

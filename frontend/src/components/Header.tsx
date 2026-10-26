@@ -8,12 +8,15 @@ const CONNECTION_LABEL: Record<ConnectionState, { icon: string; text: string }> 
   disconnected: { icon: "✕", text: "Backend disconnected — retrying" },
 };
 
-export function Header() {
+export function Header({ menuOpen, onMenu }: { menuOpen: boolean; onMenu: () => void }) {
   const { connection } = useStream();
   const { mode, setMode } = useViewMode();
   const conn = CONNECTION_LABEL[connection];
   return (
     <header className="header">
+      <button type="button" className="menu-btn" aria-expanded={menuOpen} aria-controls="sidebar" onClick={onMenu}>
+        <span aria-hidden="true">☰</span> Menu
+      </button>
       <NavLink to="/" className="brand" aria-label="MarketLab home">
         <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
           <rect width="32" height="32" rx="7" fill="var(--panel-2)" />
@@ -24,13 +27,8 @@ export function Header() {
       <span className="sim-badge" role="status" title="All prices and trades are hypothetical">
         SIMULATION MODE
       </span>
-      <nav className="nav" aria-label="Modules">
-        <NavLink to="/market-maker">Market Maker</NavLink>
-        <NavLink to="/fx">FX Routing &amp; Hedging</NavLink>
-        <NavLink to="/tcp-lab">TCP Lab</NavLink>
-      </nav>
       <div className="header-right">
-        <div className="segmented" role="group" aria-label="Presentation level">
+        <div className="segmented" role="group" aria-label="Presentation level" title="Simple: plain English. Technical: IDs, formulas and raw data.">
           <button type="button" aria-pressed={mode === "simple"} onClick={() => setMode("simple")}>
             Simple
           </button>

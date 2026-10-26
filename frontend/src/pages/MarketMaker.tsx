@@ -6,6 +6,7 @@ import type { MarketLabEvent } from "../api/types";
 import { LineChart } from "../components/charts";
 import { EventTimeline } from "../components/EventTimeline";
 import { OrderTrace } from "../components/OrderTrace";
+import { StartHere, Term } from "../components/learn";
 import { ErrorNote, Explain, JsonBlock, Loading, Panel, SimpleOnly, Stat, StatusBadge, TechOnly, useAction } from "../components/ui";
 import { fmtMoney, fmtNum, fmtPct, fmtSignedMoney, shortTime } from "../lib/format";
 import { useLive } from "../lib/useLive";
@@ -21,12 +22,18 @@ export function MarketMaker() {
         <div>
           <h1>Market Maker Simulator</h1>
           <p className="lead">
-            A market maker continuously offers to buy (bid) and sell (ask) {data.instrument}. It earns the gap between the
-            two, the spread, when customers trade on both sides, but it carries risk while it holds shares.
+            A <Term id="market_maker">market maker</Term> continuously offers to buy (the <Term id="bid">bid</Term>) and sell
+            (the <Term id="ask">ask</Term>) {data.instrument}, a made-up stock. It earns the gap between the two, the{" "}
+            <Term id="spread">spread</Term>, when customers trade on both sides, but it carries risk while it holds shares.
           </p>
         </div>
         <ResetDemo onDone={refresh} />
       </header>
+      <StartHere steps={[
+        <>In <b>Guided demos</b>, load <b>Spread Capture</b> and press “Run step” five times, reading <b>What to notice</b> each time.</>,
+        <>Watch the <b>Inventory & P&L</b> tiles change. Hover any underlined word for a definition, or press <b>?</b> on a panel.</>,
+        <>Then try <b>Inventory Risk</b>, or press <b>Start</b> in the clock bar above to let synthetic customers trade.</>,
+      ]} />
       <ErrorNote error={error} />
       <Presets state={data} onChange={refresh} />
       <div className="grid-2">
@@ -68,7 +75,7 @@ function Presets({ state, onChange }: { state: MMState; onChange: () => void }) 
   useEffect(() => { void mmApi.presets().then(setPresets).catch(() => undefined); }, []);
   const active = state.preset;
   return (
-    <Panel title="Guided demos" id="mm-presets" actions={<span className="muted small">Deterministic: same steps, same results, every time</span>}>
+    <Panel title="Guided demos" id="mm-presets" help={<><p>Step-by-step demos with fixed starting conditions, so every run gives the same numbers. Load one, then press “Run step” and read <b>What to notice</b>.</p><p>Loading a demo pauses the simulation clock so nothing else interferes.</p></>} actions={<span className="muted small">Deterministic: same steps, same results, every time</span>}>
       <div className="preset-row">
         {presets.map((p) => (
           <div key={p.id} className={`preset ${active?.id === p.id ? "active" : ""}`}>
@@ -113,7 +120,7 @@ function Presets({ state, onChange }: { state: MMState; onChange: () => void }) 
 function QuoteCard({ s }: { s: MMState }) {
   const q = s.quote;
   return (
-    <Panel title="Current quote" id="mm-quote">
+    <Panel title="Current quote" id="mm-quote" help={<><p>The <Term id="market_maker">market maker</Term>'s current <Term id="quote">quote</Term>: the <Term id="bid">bid</Term> is what it pays if you sell to it; the <Term id="ask">ask</Term> is what you pay to buy from it. The difference is the <Term id="spread">spread</Term>, its reward for always being available.</p><p>“Fair value” is the simulator's estimate of the true price; the quote is built around it and shifted by inventory (<Term id="skew">skew</Term>).</p></>}>
       <div className="quote-big">
         <div className="quote-side bid">
           <span className="quote-label">Bid · MM buys at</span>
@@ -158,7 +165,7 @@ function LedgerCard({ s }: { s: MMState }) {
   const l = s.ledger;
   const util = Math.abs(Number(l.inventory_utilization));
   return (
-    <Panel title="Inventory & P&L" id="mm-ledger" actions={<span className="muted small">marked at fair value {fmtMoney(l.mark_price)}</span>}>
+    <Panel title="Inventory & P&L" id="mm-ledger" help={<><p>The market maker's books. <Term id="inventory">Inventory</Term> is how many shares it holds (negative = <Term id="long_short">short</Term>). <Term id="realized">Realized</Term> P&L is locked in; <Term id="unrealized">unrealized</Term> P&L is what open positions are worth at today's fair value.</p><p>Net P&L = realized + unrealized − <Term id="fees">fees</Term>. “Gross spread captured” measures how far from fair value each trade was; it is <i>not</i> profit.</p></>} actions={<span className="muted small">marked at fair value {fmtMoney(l.mark_price)}</span>}>
       <div className="stats">
         <Stat label="Inventory" value={`${fmtNum(l.position)} sh`} hint={l.position > 0 ? "long" : l.position < 0 ? "short" : "flat"} raw={l.position} />
         <Stat label="Average cost" value={l.avg_cost ? fmtMoney(l.avg_cost, 4) : "—"} raw={l.avg_cost} />
@@ -206,7 +213,7 @@ function FlowDiagram({ onInspect }: { onInspect: (id: string) => void }) {
   }, [events]);
   const has = (types: string[]) => chain?.related.some((e) => types.includes(e.type));
   return (
-    <Panel title="Order flow" id="mm-flow" actions={chain?.corr && <button type="button" className="link" onClick={() => onInspect(chain.corr!)}>Trace this order →</button>}>
+    <Panel title="Order flow" id="mm-flow" help={<p>The path your last order took through the system. Each box lights up when the backend reports that step happened. Click “Trace this order” to see every recorded event for it.</p>} actions={chain?.corr && <button type="button" className="link" onClick={() => onInspect(chain.corr!)}>Trace this order →</button>}>
       <ol className="flow" key={chain?.corr ?? "none"}>
         {STAGES.map((st, i) => {
           const on = st.key === "quote" ? has(["quote.updated"]) || has(["trade.executed"]) : has(st.types);
@@ -243,7 +250,7 @@ function BookLadder({ s }: { s: MMState }) {
     </tr>
   );
   return (
-    <Panel title="Order book" id="mm-book" actions={<span className="muted small">{s.stats.resting_orders} resting orders</span>}>
+    <Panel title="Order book" id="mm-book" help={<p>The live <Term id="order_book">order book</Term>. Sellers (asks) are on top, buyers (bids) below; the bars show how many shares wait at each price. “MM” marks the market maker's own quotes, “C” customers' limit orders.</p>} actions={<span className="muted small">{s.stats.resting_orders} resting orders</span>}>
       <table className="ladder">
         <caption className="sr-only">Order book: bids and asks by price</caption>
         <thead><tr><th scope="col">Bid size</th><th scope="col">Price</th><th scope="col">Ask size</th></tr></thead>
@@ -300,7 +307,7 @@ function OrderEntry({ s, onDone, onTrace }: { s: MMState; onDone: () => void; on
   };
   const open = s.customer_orders.filter((o) => o.status === "open" || o.status === "partially_filled");
   return (
-    <Panel title="Place a customer order" id="mm-entry">
+    <Panel title="Place a customer order" id="mm-entry" help={<p>Act as a customer. A <Term id="market_order">market order</Term> trades now at the best price; a <Term id="limit_order">limit order</Term> waits unless someone matches your price. Each order carries an <Term id="idempotency">idempotency key</Term> so a retry never creates a duplicate.</p>}>
       <form className="order-form" onSubmit={submit}>
         <div className="segmented" role="group" aria-label="Side">
           <button type="button" aria-pressed={side === "buy"} onClick={() => setSide("buy")}>Buy</button>
@@ -415,7 +422,7 @@ function Charts({ s }: { s: MMState }) {
 
 function TradesTape({ s, onTrace }: { s: MMState; onTrace: (id: string) => void }) {
   return (
-    <Panel title="Recent trades" id="mm-trades">
+    <Panel title="Recent trades" id="mm-trades" help={<p>Every executed trade, newest first. “▲ bought / ▼ sold” is from the market maker's point of view; synthetic customers trade too while the clock runs.</p>}>
       {s.trades.length === 0 ? <p className="empty">No trades yet.</p> : (
         <div className="scroll">
           <table className="table compact">
@@ -479,7 +486,7 @@ function Settings({ cfg, onDone }: { cfg: MMConfig; onDone: () => void }) {
     });
   };
   return (
-    <Panel title="Simulation settings" id="mm-settings" actions={<button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"}</button>}>
+    <Panel title="Simulation settings" id="mm-settings" help={<p>Change the simulated market: the market maker's spread and limits, how much prices move (volatility), how many customers arrive and which way they lean, fees and tick size. Invalid combinations are rejected with an explanation.</p>} actions={<button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"}</button>}>
       {!open ? <p className="small muted">Adjust fair value, spread, inventory limits, volatility, order flow and fees. Changes are validated by the backend.</p> : (
         <form onSubmit={apply}>
           <div className="form-grid">

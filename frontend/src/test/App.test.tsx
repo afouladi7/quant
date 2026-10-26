@@ -6,6 +6,7 @@ import { App } from "../App";
 import { StreamProvider } from "../api/stream";
 import type { SimulationStatus } from "../api/types";
 import { ViewModeProvider } from "../state/viewMode";
+import { mmState, presets } from "./fixtures";
 import { FakeWebSocket } from "./setup";
 
 const status = (over: Partial<SimulationStatus> = {}): SimulationStatus => ({
@@ -21,6 +22,8 @@ const status = (over: Partial<SimulationStatus> = {}): SimulationStatus => ({
 function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
+    if (url.endsWith("/mm/state")) return new Response(JSON.stringify(mmState()), { status: 200 });
+    if (url.endsWith("/mm/presets")) return new Response(JSON.stringify(presets), { status: 200 });
     const body = handler(url, init);
     if (body instanceof Response) return body;
     return new Response(JSON.stringify(body), { status: 200 });
@@ -44,13 +47,14 @@ function connect(s = status()) {
 }
 
 describe("App shell", () => {
-  it("shows the simulation-mode banner, intro and three module cards", () => {
+  it("shows the simulation-mode banner, intro and grouped sidebar navigation", () => {
     mockFetch(() => []);
     renderApp();
     expect(screen.getByText("SIMULATION MODE")).toBeInTheDocument();
-    expect(screen.getByText(/Every trade and price in the simulator is hypothetical/)).toBeInTheDocument();
-    for (const t of ["Market Maker Simulator", "FX Order Routing and Hedging", "TCP Performance Lab"]) {
-      expect(screen.getByRole("heading", { name: t })).toBeInTheDocument();
+    expect(screen.getByText(/Everything here is simulated/)).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    for (const t of ["Learning path", "Glossary", "Order book playground", "Market maker", "FX routing & hedging", "Risk & returns", "Options", "TCP latency lab", "How it works"]) {
+      expect(within(nav).getByRole("link", { name: new RegExp(t.replace(/[&]/g, "&")) })).toBeInTheDocument();
     }
   });
 
@@ -70,13 +74,13 @@ describe("App shell", () => {
 
   it("disables controls while disconnected", () => {
     mockFetch(() => []);
-    renderApp();
+    renderApp("/market-maker");
     expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
   });
 
   it("Start calls the backend and shows the authoritative state it returns", async () => {
     const fetchSpy = mockFetch((url) => (url.endsWith("/simulation/start") ? status({ state: "running" }) : []));
-    renderApp();
+    renderApp("/market-maker");
     connect();
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(fetchSpy).toHaveBeenCalledWith("/api/v1/simulation/start", expect.objectContaining({ method: "POST" }));
@@ -92,7 +96,7 @@ describe("App shell", () => {
           })
         : [],
     );
-    renderApp();
+    renderApp("/market-maker");
     connect();
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(screen.getByRole("alert")).toHaveTextContent("simulation is already running");
@@ -100,7 +104,7 @@ describe("App shell", () => {
 
   it("renders streamed events and reveals technical details on click", async () => {
     mockFetch(() => []);
-    renderApp();
+    renderApp("/how-it-works");
     connect();
     act(() =>
       FakeWebSocket.last.emit({
@@ -118,18 +122,25 @@ describe("App shell", () => {
 
   it("Technical view reveals tick and seed; Simple view hides them", async () => {
     mockFetch(() => []);
-    renderApp();
+    renderApp("/market-maker");
     connect(status({ tick: 17 }));
     expect(screen.queryByTestId("sim-tick")).not.toBeInTheDocument();
     await userEvent.click(within(screen.getByRole("group", { name: "Presentation level" })).getByRole("button", { name: "Technical" }));
     expect(screen.getByTestId("sim-tick")).toHaveTextContent("17");
   });
 
-  it("home links to all five demo presets", () => {
+  it("home suggests a starting path for each level", async () => {
     mockFetch(() => []);
     renderApp();
-    for (const t of ["1. Spread Capture", "2. Inventory Risk", "3. Fragmented FX Liquidity", "4. GBP Hedging", "5. TCP Latency"]) {
-      expect(screen.getByText(t)).toBeInTheDocument();
-    }
+    await userEvent.click(screen.getByRole("button", { name: /I'm new to finance/ }));
+    expect(screen.getByRole("link", { name: /Lesson: What is a market\?/ })).toHaveAttribute("href", "/learn/what-is-a-market");
+    await userEvent.click(screen.getByRole("button", { name: /I'm a quant or engineer/ }));
+    expect(screen.getByRole("link", { name: /Options lab/ })).toHaveAttribute("href", "/options");
+  });
+
+  it("the simulation clock bar only appears on simulation pages", () => {
+    mockFetch(() => []);
+    renderApp("/glossary");
+    expect(screen.queryByRole("region", { name: "Simulation controls" })).not.toBeInTheDocument();
   });
 });

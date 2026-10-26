@@ -3,6 +3,7 @@ import { http } from "../api/client";
 import { useStream } from "../api/stream";
 import { DistributionChart } from "../components/charts";
 import { EventTimeline } from "../components/EventTimeline";
+import { StartHere, Term } from "../components/learn";
 import { ErrorNote, Explain, JsonBlock, Panel, SimpleOnly, StatusBadge, TechOnly, useAction } from "../components/ui";
 import { fmtMs, fmtPct } from "../lib/format";
 
@@ -81,6 +82,11 @@ export function TCPLab() {
           </p>
         </div>
       </header>
+      <StartHere steps={[
+        <>Read <b>What is being measured</b> (four short ideas).</>,
+        <>Press <b>Run comparison</b> and wait about 10 seconds.</>,
+        <>Read <b>What this run measured</b> under the chart, then compare the medians in <b>Statistics</b>.</>,
+      ]} />
       <Concepts />
       <div className="grid-2">
         <Suite busy={busy} onStarted={onStarted} />
@@ -96,7 +102,7 @@ export function TCPLab() {
 
 function Concepts() {
   return (
-    <Panel title="What is being measured" id="tcp-concepts">
+    <Panel title="What is being measured" id="tcp-concepts" help={<p>These experiments send real network messages to MarketLab's own backend and time each step with a high-resolution clock. Nothing is simulated here.</p>}>
       <Explain
         simple={
           <div className="concepts">
@@ -122,7 +128,7 @@ function Suite({ busy, onStarted }: { busy: boolean; onStarted: (ids: string[]) 
   const [trials, setTrials] = useState(40);
   const { busy: posting, error, run } = useAction();
   return (
-    <Panel title="Preset 5: run the standard comparison" id="tcp-suite">
+    <Panel title="Preset 5: run the standard comparison" id="tcp-suite" help={<p>Five experiments run back to back with the same settings. Each one changes a single thing (connection reuse, splitting the message, doing work early) so differences can be attributed to that change.</p>}>
       <ol className="small suite-list">
         <li><b>A</b> complete message, cold connection (connect measured)</li>
         <li><b>C</b> complete message, pre-established connection</li>
@@ -156,7 +162,7 @@ function Controls({ busy, onStarted }: { busy: boolean; onStarted: (ids: string[
     void run(async () => { const r = await http.post<Run>("/tcp/benchmarks", cfg); onStarted([r.id]); });
   };
   return (
-    <Panel title="Custom benchmark" id="tcp-custom" actions={busy ? <button type="button" className="btn" onClick={() => void http.post("/tcp/cancel")}>Cancel run</button> : null}>
+    <Panel title="Custom benchmark" id="tcp-custom" help={<><p>Design your own experiment. A <b>cold</b> connection performs the TCP <Term id="handshake">handshake</Term> every time; <b>reused</b> connects once. <b>Split</b> sends all but the last byte, waits, then sends the last byte. TCP_NODELAY turns off <Term id="nagle">Nagle's algorithm</Term>.</p></>} actions={busy ? <button type="button" className="btn" onClick={() => void http.post("/tcp/cancel")}>Cancel run</button> : null}>
       <form onSubmit={submit}>
         <div className="form-row">
           <label>Transport<select value={cfg.transport} onChange={(e) => set("transport", e.target.value as Cfg["transport"])}><option value="raw_tcp">Raw TCP</option><option value="http">HTTP POST</option></select></label>
@@ -194,11 +200,11 @@ function Results({ shown }: { shown: Run[] }) {
   });
   return (
     <>
-      <Panel title="Latency distributions (total request time)" id="tcp-dist">
+      <Panel title="Latency distributions (total request time)" id="tcp-dist" help={<p>Each dot is one measured request. Wide spreads mean unpredictable latency. Compare the medians (vertical bars) and the boxes (middle 50%).</p>}>
         <DistributionChart title="Per-trial total latency" rows={rows} />
         <Interpretation shown={shown} />
       </Panel>
-      <Panel title="Statistics" id="tcp-stats" actions={shown[0]?.suite_id ? <a className="btn" href={`/api/v1/tcp/suites/${shown[0].suite_id}/csv`}>⬇ Suite CSV</a> : null}>
+      <Panel title="Statistics" id="tcp-stats" help={<p>Summary statistics for each experiment. Look at the median for typical behaviour and p95/p99 for the slow tail (<Term id="percentile">percentiles</Term>).</p>} actions={shown[0]?.suite_id ? <a className="btn" href={`/api/v1/tcp/suites/${shown[0].suite_id}/csv`}>⬇ Suite CSV</a> : null}>
         <div className="scroll">
           <table className="table compact">
             <thead><tr><th>Experiment</th><th className="num">n</th><th className="num">min</th><th className="num">median</th><th className="num">mean</th><th className="num">stdev</th><th className="num">p90</th><th className="num">p95</th><th className="num">p99</th><th className="num">errors</th><th className="num">timeouts</th><th /></tr></thead>
@@ -218,7 +224,7 @@ function Results({ shown }: { shown: Run[] }) {
         </div>
         <p className="small muted">All values in milliseconds. p90 needs ≥10 samples, p95 ≥20, p99 ≥100; otherwise “—”. Cold- and reused-connection runs are always reported separately.</p>
       </Panel>
-      <Panel title="Where the time goes (median per phase, ms from request start)" id="tcp-phases">
+      <Panel title="Where the time goes (median per phase, ms from request start)" id="tcp-phases" help={<p>Where the time went, as the median time from the start of the request until each event: connecting, writing, the server receiving the whole message, server work, and the response.</p>}>
         <div className="scroll">
           <table className="table compact">
             <thead><tr><th>Phase</th>{shown.map((r) => <th key={r.id} className="num small">{r.description.slice(0, 26)}</th>)}</tr></thead>
@@ -292,7 +298,7 @@ function TrialTable({ run }: { run: Run }) {
 function RunList({ runs, selected, setSelected }: { runs: Run[]; selected: string[]; setSelected: (s: string[]) => void }) {
   const toggle = (id: string) => setSelected(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
-    <Panel title="Benchmark history" id="tcp-history" actions={<span className="small muted">tick runs to compare (kept in memory, last 30)</span>}>
+    <Panel title="Benchmark history" id="tcp-history" help={<p>All recent runs. Tick several to compare their distributions above.</p>} actions={<span className="small muted">tick runs to compare (kept in memory, last 30)</span>}>
       {runs.length === 0 ? <p className="empty">No runs yet.</p> : (
         <div className="scroll">
           <table className="table compact">

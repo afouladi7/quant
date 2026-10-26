@@ -5,6 +5,7 @@ import { useStream } from "../api/stream";
 import { BarList, LineChart } from "../components/charts";
 import { EventTimeline } from "../components/EventTimeline";
 import { OrderTrace } from "../components/OrderTrace";
+import { StartHere, Term } from "../components/learn";
 import { ErrorNote, Explain, Loading, Panel, StatusBadge, Tabs, TechOnly, useAction } from "../components/ui";
 import { compact, fmtNum, fmtPct } from "../lib/format";
 import { useLive } from "../lib/useLive";
@@ -21,8 +22,9 @@ export function FX() {
         <div>
           <h1>FX Order Routing &amp; Hedging</h1>
           <p className="lead">
-            A simulated hedge fund trades currencies on three independent order books, A, B and C, then manages the
-            currency risk it has taken on. Rates and book settings are synthetic and hypothetical, not live market data.
+            A simulated hedge fund trades <Term id="fx_pair">currencies</Term> on three independent order books, A, B and C,
+            that each offer different prices, amounts, fees and speeds. Then it manages the currency risk it has taken on by{" "}
+            <Term id="hedge">hedging</Term>. Rates and book settings are synthetic, not live market data.
           </p>
         </div>
       </header>
@@ -46,10 +48,15 @@ function Routing() {
   const digits = data.pair.tick_size.split(".")[1]?.length ?? 5;
   return (
     <>
+      <StartHere steps={[
+        <>Load <b>scenario 1</b> and run its steps: the best price runs out, so a big order gets worse prices.</>,
+        <>Run <b>scenario 4</b>: the smart router splits one order across all three books. The <b>Routing result</b> shows how.</>,
+        <>Then open the <b>Portfolio & hedging</b> tab to see how the fund protects itself from currency moves.</>,
+      ]} />
       <ErrorNote error={error} />
       <Scenarios state={data} onChange={refresh} onParent={setLastParent} />
       <div className="grid-2">
-        <Panel title="Market rate" id="fx-rate" actions={
+        <Panel title="Market rate" id="fx-rate" help={<p>The synthetic “market” <Term id="fx_pair">exchange rate</Term>. Each book quotes around it with its own spread. It drifts randomly while the simulation clock runs.</p>} actions={
           <label className="small">Pair{" "}
             <select value={pair} onChange={(e) => setPair(e.target.value)}>{data.pairs.map((p) => <option key={p}>{p}</option>)}</select>
           </label>
@@ -82,7 +89,7 @@ function Scenarios({ state, onChange, onParent }: { state: FXState; onChange: ()
   useEffect(() => { void fxApi.scenarios().then(setList).catch(() => undefined); }, []);
   const active = state.scenario;
   return (
-    <Panel title="Routing scenarios" id="fx-scen" actions={<span className="small muted">GBP/USD fixed at 1.27000 · simulation paused · reproducible</span>}>
+    <Panel title="Routing scenarios" id="fx-scen" help={<p>Six small, repeatable experiments. Each sets the three books to known prices (GBP/USD at 1.27000), pauses the clock, and runs one or two orders so you can see a specific routing effect. Read the card, load it, then run its steps.</p>} actions={<span className="small muted">GBP/USD fixed at 1.27000 · simulation paused · reproducible</span>}>
       <div className="scenario-grid">
         {list.map((s) => (
           <div key={s.id} className={`preset ${active?.id === s.id ? "active" : ""}`}>
@@ -139,7 +146,7 @@ function OrderTicket({ state, onDone }: { state: FXState; onDone: (p: Parent) =>
     void run(async () => { const r = await fxApi.submit(body(), key); onDone(r.parent); });
   };
   return (
-    <Panel title="Fund order ticket" id="fx-ticket">
+    <Panel title="Fund order ticket" id="fx-ticket" help={<><p>The fund's order ticket. Choose one book, or <Term id="routing">smart routing</Term> across all three. “Preview route” shows the plan without trading.</p><p>The latency penalty is how much the router dislikes slow books: it adds a cost per 100 ms of <Term id="latency">latency</Term> to each price.</p></>}>
       <form className="order-form" onSubmit={submit}>
         <div className="segmented" role="group" aria-label="Side">
           <button type="button" aria-pressed={side === "buy"} onClick={() => setSide("buy")}>Buy {state.pair.base}</button>
@@ -219,7 +226,7 @@ function RoutingResult({ parent, books, onTrace }: { parent: Parent; books: Book
   useEffect(() => { if (lastSeq) void fxApi.order(parent.id).then((r) => setP(r.parent)).catch(() => undefined); }, [lastSeq, parent.id]);
   const byBook = useMemo(() => Object.fromEntries(books.map((b) => [b.name, b])), [books]);
   return (
-    <Panel title={<>Routing result <StatusBadge status={p.status} filled={p.filled_qty} quantity={p.quantity} /></>} id="fx-result"
+    <Panel title={<>Routing result <StatusBadge status={p.status} filled={p.filled_qty} quantity={p.quantity} /></>} id="fx-result" help={<p>How the last order was split. The parent order is what you asked for; each child is the piece sent to one book. The parent's filled quantity is the sum of the children, and its average price is the <Term id="vwap">volume-weighted average</Term> of their fills.</p>}
       actions={<button type="button" className="link" onClick={() => onTrace(p.id)}>Trace parent order →</button>}>
       <div className="route-diagram" key={p.id}>
         <div className="route-parent">
@@ -268,7 +275,7 @@ function Comparison({ books, pip }: { books: BookSnap[]; pip: string }) {
   const bestBid = Math.max(...books.map((b) => Number(b.best_bid ?? -Infinity)));
   const bestAsk = Math.min(...books.map((b) => Number(b.best_ask ?? Infinity)));
   return (
-    <Panel title="Books compared" id="fx-compare" actions={<span className="small muted">★ = best price across books</span>}>
+    <Panel title="Books compared" id="fx-compare" help={<p>The three books side by side. ★ marks the best bid and ask. <Term id="depth">Depth</Term> is the total available; a book can have the best price but little depth.</p>} actions={<span className="small muted">★ = best price across books</span>}>
       <div className="scroll">
         <table className="table">
           <thead><tr><th>Book</th><th className="num">Best bid</th><th className="num">Best ask</th><th className="num">Spread</th><th className="num">Bid depth</th><th className="num">Ask depth</th><th className="num">Fee</th><th className="num">Latency</th><th className="num">Fund fill rate</th></tr></thead>
@@ -346,7 +353,7 @@ function BookCard({ b, digits, onChange }: { b: BookSnap; digits: number; onChan
 function ParentList({ parents, onTrace, onSelect, onChange }: { parents: Parent[]; onTrace: (id: string) => void; onSelect: (p: Parent) => void; onChange: () => void }) {
   const cancel = useAction();
   return (
-    <Panel title="Fund orders" id="fx-orders">
+    <Panel title="Fund orders" id="fx-orders" help={<p>Every order the fund has sent, with how it was routed and filled. “Trace” shows every event linked to that order.</p>}>
       {parents.length === 0 ? <p className="empty">No fund orders yet. Use the ticket or a scenario above.</p> : (
         <div className="scroll">
           <table className="table compact">
