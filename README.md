@@ -43,6 +43,7 @@ Details: [`docs/DESIGN.md`](docs/DESIGN.md) (design, data models, API contracts)
 ## Local development
 
 ```bash
+git clone https://github.com/afouladi7/quant.git && cd quant
 python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements-dev.txt
 cd backend && .venv/bin/uvicorn --factory app.main:factory --port 8000      # http://127.0.0.1:8000
 cd frontend && npm ci && npm run dev                                          # http://localhost:5173 (proxies /api)
