@@ -1,0 +1,17 @@
+# Host is intentionally omitted: OpenShift generates one from the cluster's
+# ingress domain, so the same manifest works on any cluster.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: marketlab
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+  annotations:
+    # Long timeout so the live WebSocket stream is not cut every 30 s.
+    haproxy.router.openshift.io/timeout: 1h
+spec:
+  to: {kind: Service, name: marketlab-frontend, weight: 100}
+  port: {targetPort: http}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

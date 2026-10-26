@@ -1,0 +1,7 @@
+# Top-level runtime dependencies (unpinned intent). requirements.txt is the pinned lock.
+fastapi
+uvicorn
+websockets
+pydantic
+pydantic-settings
+psycopg[binary]  # PostgreSQL persistent mode (optional at runtime; imported only when enabled)

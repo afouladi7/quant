@@ -1,0 +1,28 @@
+# Optional persistent mode: an in-namespace PostgreSQL plus backend settings.
+# Requires a Secret named "marketlab-db" with keys POSTGRESQL_USER, POSTGRESQL_PASSWORD,
+# POSTGRESQL_DATABASE (scripts/install.sh --with-postgres creates one with a random
+# password if it does not exist). To use an EXTERNAL database instead, do not use this
+# component: set MARKETLAB_PERSISTENCE_MODE=postgres and MARKETLAB_DATABASE_URL via your own Secret.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: marketlab
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+resources:
+  - postgres.yaml
+images:
+  # Public, OpenShift-friendly PostgreSQL image (arbitrary UID). Pin a digest for reproducibility;
+  # scripts/install.sh overrides this with POSTGRES_IMAGE (e.g. a mirrored copy in an air-gapped registry).
+  - name: marketlab-postgres
+    newName: quay.io/sclorg/postgresql-16-c9s
+    newTag: latest
+patches:
+  - path: backend-db-patch.yaml
+    target: {kind: Deployment, name: marketlab-backend}
+  - patch: |-
+      - op: replace
+        path: /data/MARKETLAB_PERSISTENCE_MODE
+        value: postgres
+    target: {kind: ConfigMap, name: marketlab-backend-config}

@@ -1,0 +1,16 @@
+# Plain Kubernetes (kind, minikube, k3s). No Route. scripts/verify.sh port-forwards automatically; manually:
+#   kubectl -n <ns> port-forward svc/marketlab-frontend 8080:8080
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+components:
+  - ../../components/images
+configMapGenerator:
+  - name: marketlab-backend-config
+    behavior: merge
+    literals:
+      - MARKETLAB_ENVIRONMENT=local-kubernetes
+      - MARKETLAB_LOG_LEVEL=DEBUG
+generatorOptions:
+  disableNameSuffixHash: true

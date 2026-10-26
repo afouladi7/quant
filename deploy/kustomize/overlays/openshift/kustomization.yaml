@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: marketlab
+    includeSelectors: false
+resources:
+  - ../../base
+  - route.yaml
+  - networkpolicy-router.yaml
+components:
+  - ../../components/images
+configMapGenerator:
+  - name: marketlab-backend-config
+    behavior: merge
+    literals:
+      - MARKETLAB_ENVIRONMENT=openshift
+generatorOptions:
+  disableNameSuffixHash: true

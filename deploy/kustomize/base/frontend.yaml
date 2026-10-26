@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: marketlab-frontend
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: marketlab-frontend-config
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+data:
+  # Short Service name resolves within whatever namespace this is installed in.
+  MARKETLAB_BACKEND_HOSTPORT: "marketlab-backend:8000"
+  NGINX_PORT: "8080"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketlab-frontend
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketlab-frontend
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+    spec:
+      serviceAccountName: marketlab-frontend
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: frontend
+          image: marketlab-frontend
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+          envFrom:
+            - configMapRef: {name: marketlab-frontend-config}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          startupProbe:
+            httpGet: {path: /nginx-health, port: http}
+            periodSeconds: 2
+            failureThreshold: 15
+          readinessProbe:
+            httpGet: {path: /nginx-health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /nginx-health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}

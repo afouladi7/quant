@@ -1,0 +1,18 @@
+# Only needed if the namespace has a default-deny policy: lets the OpenShift
+# ingress routers reach the frontend. Harmless otherwise.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: marketlab-frontend-from-router
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: ingress
+      ports:
+        - {port: 8080, protocol: TCP}

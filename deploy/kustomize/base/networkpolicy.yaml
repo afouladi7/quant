@@ -1,0 +1,17 @@
+# The backend accepts traffic only from MarketLab frontend pods in the same namespace.
+# (Kubelet probes are not subject to NetworkPolicy.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: marketlab-backend-ingress
+  labels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: backend}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: backend}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: marketlab, app.kubernetes.io/component: frontend}
+      ports:
+        - {port: 8000, protocol: TCP}

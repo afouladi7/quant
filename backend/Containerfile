@@ -1,0 +1,35 @@
+# MarketLab backend image.
+# Builds without privileges (podman/buildah/OpenShift BuildConfig) and runs under
+# any arbitrary UID in group 0, as OpenShift restricted-v2 assigns.
+ARG PYTHON_IMAGE=registry.access.redhat.com/ubi9/python-312:latest
+# Runtime uses the minimal variant (same /usr/bin/python3.12, far smaller). Both are maintained UBI images.
+ARG RUNTIME_IMAGE=registry.access.redhat.com/ubi9/python-312-minimal:latest
+
+FROM ${PYTHON_IMAGE} AS build
+USER 0
+WORKDIR /build
+COPY requirements.txt .
+# For offline builds against a local wheelhouse (docs/OPERATIONS.md, "Air-gapped builds"):
+#   --build-arg PIP_INSTALL_ARGS="--no-index --find-links=/build/wheels"
+ARG PIP_INSTALL_ARGS=""
+COPY wheels* /build/wheels/
+RUN python3 -m venv /opt/marketlab/venv \
+ && /opt/marketlab/venv/bin/pip install --no-cache-dir ${PIP_INSTALL_ARGS} -r requirements.txt
+
+FROM ${RUNTIME_IMAGE}
+USER 0
+ENV PATH=/opt/marketlab/venv/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
+    MARKETLAB_LOG_JSON=true
+COPY --from=build /opt/marketlab/venv /opt/marketlab/venv
+WORKDIR /opt/marketlab/app
+COPY app ./app
+# Group 0 ownership + group-read lets an arbitrary UID (member of GID 0) run it.
+RUN chgrp -R 0 /opt/marketlab && chmod -R g=u /opt/marketlab
+USER 1001
+EXPOSE 8000
+# Single worker on purpose: all simulation state lives in this one process.
+CMD ["uvicorn", "--factory", "app.main:factory", "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", "--no-access-log", "--timeout-graceful-shutdown", "10"]

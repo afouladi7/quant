@@ -1,0 +1,12 @@
+# Published MarketLab images, pinned by digest. This file is the single source of truth
+# for image references and is rewritten automatically by scripts/release-images.sh.
+# Repository: quay.io/allenfouladi/quant (public; tags backend-<ver> / frontend-<ver>).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+images:
+  - name: marketlab-backend
+    newName: quay.io/allenfouladi/quant
+    digest: sha256:be232b72bc03603624b795dfd932fb86d3bfbd986496b4377a1c86f774f5c598  # backend-0.1.0
+  - name: marketlab-frontend
+    newName: quay.io/allenfouladi/quant
+    digest: sha256:3b86857d42d5ea6302d07f5d120d3771330bb70a70f6e16feba33b7e151551dd  # frontend-0.1.0

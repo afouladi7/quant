@@ -1,0 +1,24 @@
+# MarketLab frontend image: build the SPA with Node, serve it with unprivileged nginx.
+ARG NODE_IMAGE=registry.access.redhat.com/ubi9/nodejs-22:latest
+ARG NGINX_IMAGE=registry.access.redhat.com/ubi9/nginx-124:latest
+
+FROM ${NODE_IMAGE} AS build
+USER 0
+WORKDIR /build
+COPY package.json package-lock.json ./
+# For offline builds point npm at an internal registry/cache, e.g.
+#   --build-arg NPM_CONFIG_REGISTRY=http://nexus.lab/repository/npm/
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+RUN npm ci --no-audit --no-fund --registry="${NPM_CONFIG_REGISTRY}"
+COPY . .
+RUN npm run build
+
+FROM ${NGINX_IMAGE}
+USER 0
+COPY --from=build /build/dist /opt/app-root/src
+COPY nginx/nginx.conf.template /opt/marketlab/nginx.conf.template
+COPY nginx/entrypoint.sh /opt/marketlab/entrypoint.sh
+RUN chgrp -R 0 /opt/app-root/src /opt/marketlab && chmod -R g=u /opt/app-root/src /opt/marketlab
+USER 1001
+EXPOSE 8080
+ENTRYPOINT ["/opt/marketlab/entrypoint.sh"]
