@@ -539,7 +539,7 @@ class PortfolioService:
         self.rule = HedgeRule()
         self.fx.restore_defaults(rng)  # also resets this portfolio via reset_listeners
         self.guided_step = 0
-        self._bus.publish("scenario.loaded", self.name, "GBP hedging scenario reset: USD 20,000,000 cash, no positions, GBP/USD 1.27000.")
+        self._bus.publish("scenario.loaded", self.name, "GBP hedging scenario reset: USD 20,000,000 cash, no positions, GBP/USD 1.33000.")
 
     def guided_next(self, instrument: str = "futures", rate_pct: Decimal | None = None) -> dict[str, Any]:
         step = self.guided_step

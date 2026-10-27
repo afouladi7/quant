@@ -76,7 +76,7 @@ describe("FX routing page", () => {
   it("compares the three books and marks the best offer", async () => {
     mockApi({ "GET /fx/state": fxState(), "GET /fx/scenarios": [] });
     renderAt("/fx");
-    expect(await screen.findByText(/1\.27003 ★/)).toBeInTheDocument();
+    expect(await screen.findByText(/1\.33003 ★/)).toBeInTheDocument();
     for (const b of ["Book A", "Book B", "Book C"]) expect(screen.getAllByText(b).length).toBeGreaterThan(0);
   });
 
@@ -96,8 +96,21 @@ describe("FX routing page", () => {
     expect(await screen.findByText(/One parent order becomes several child orders/)).toBeInTheDocument();
     const result = screen.getByRole("heading", { name: /Routing result/ }).closest("section")!;
     expect(result.querySelectorAll(".route-child.on").length).toBe(3);
-    expect(within(result).getByText("1.2700410")).toBeInTheDocument();
+    expect(within(result).getByText("1.3300410")).toBeInTheDocument();
     expect(calls.some((c) => c.url.endsWith("/fx/scenarios/4/reset"))).toBe(true);
+  });
+
+  it("explains each book's role and lets the broker's desk hedge with 6B futures", async () => {
+    const calls = mockApi({
+      "GET /fx/state": fxState(), "GET /fx/scenarios": [],
+      "POST /fx/desk/hedge": { message: "Desk hedge (on request): buy 16 6B-style GBP futures.", before: -1000000, after: 0 },
+    });
+    renderAt("/fx");
+    expect(await screen.findByText("The broker itself")).toBeInTheDocument();
+    expect(screen.getByText("Outside liquidity providers")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Hedge GBP with 6B futures now" }));
+    expect(await screen.findByText(/buy 16 6B-style GBP futures/)).toBeInTheDocument();
+    expect(calls.find((c) => c.url.endsWith("/fx/desk/hedge"))!.body).toEqual({ pair: "GBP/USD" });
   });
 
   it("previews a route without sending an order", async () => {
@@ -114,26 +127,26 @@ describe("FX routing page", () => {
 
 describe("Hedging tab", () => {
   const portfolio = {
-    valuation_currency: "USD", rates: { "GBP/USD": "1.27" }, balances: [{ currency: "GBP", amount: "1000000", usd_value: "1270000" }],
-    exposures: [{ currency: "GBP", rate_to_usd: "1.27", spot_balance: "1000000", hedge_spot: "0", futures_equivalent: "0", net_exposure: "1000000", net_exposure_usd: "1270000", pre_hedge_exposure: "1000000", pre_hedge_exposure_usd: "1270000", direction: "long", pnl_if_plus_1pct_usd: "12700", pnl_if_plus_1pct_pre_hedge_usd: "12700" }],
-    gross_exposure_usd: "1270000", net_exposure_usd: "1270000", equity_usd: "19999976", initial_equity_usd: "20000000", total_pnl_usd: "-24",
+    valuation_currency: "USD", rates: { "GBP/USD": "1.33" }, balances: [{ currency: "GBP", amount: "1000000", usd_value: "1330000" }],
+    exposures: [{ currency: "GBP", rate_to_usd: "1.33", spot_balance: "1000000", hedge_spot: "0", futures_equivalent: "0", net_exposure: "1000000", net_exposure_usd: "1330000", pre_hedge_exposure: "1000000", pre_hedge_exposure_usd: "1330000", direction: "long", pnl_if_plus_1pct_usd: "13300", pnl_if_plus_1pct_pre_hedge_usd: "13300" }],
+    gross_exposure_usd: "1330000", net_exposure_usd: "1330000", equity_usd: "19999976", initial_equity_usd: "20000000", total_pnl_usd: "-24",
     pnl_breakdown: { spot_realized_usd: "0", spot_unrealized_usd: "0", spot_fees_usd: "23.5", futures_realized_usd: "0", futures_unrealized_usd: "0", futures_fees_usd: "0", note: "" },
     spot_positions: [], futures: { spec: { symbol: "GBPUSD-FUT", underlying: "GBP/USD", contract_size: 62500, tick_size: "0.0001", days_total: 90, days_to_expiry: 75, initial_basis_pips: "12", half_spread_ticks: 1, fee_per_contract: "2", initial_margin: "3000", maintenance_margin: "2700", max_fill_per_order: 100, label: "Illustrative" },
-      contracts: 0, gbp_equivalent: 0, price: "1.2710", bid: "1.2709", ask: "1.2711", basis: "0.0010", basis_shock_pips: "0", avg_entry: null, unrealized_usd: "0", realized_usd: "0", fees_usd: "0", expired: false, margin: { initial_required: "0", maintenance_required: "0" }, margin_note: "" },
+      contracts: 0, gbp_equivalent: 0, price: "1.3310", bid: "1.3309", ask: "1.3311", basis: "0.0010", basis_shock_pips: "0", avg_entry: null, unrealized_usd: "0", realized_usd: "0", fees_usd: "0", expired: false, margin: { initial_required: "0", maintenance_required: "0" }, margin_note: "" },
     rule: { enabled: false, auto_execute: false, instrument: "futures", target_exposure: "0", max_exposure: "250000" }, proposals: [], fills: [], history: [], guided_step: 1, notice: "Hypothetical.",
   };
   const proposal = {
     id: "HDG-000001-dddd", status: "proposed", request: { instrument: "futures", mode: "rule" }, currency: "GBP", instrument: "futures", direction: "sell", quantity: 16, unit: "contracts",
-    gbp_equivalent: -1000000, exposure_before: "1000000", projected_exposure_after: "0", projected_residual: "0", est_price: "1.2709", est_fees_usd: "32", est_notional_usd: "1270900",
-    pnl_plus1_before: "12700", pnl_plus1_after: "0", explanation: "The fund is long 1,000,000 GBP.", assumptions: ["Illustrative contract terms."], created_ts: "2026-10-25T12:00:00Z",
+    gbp_equivalent: -1000000, exposure_before: "1000000", projected_exposure_after: "0", projected_residual: "0", est_price: "1.3309", est_fees_usd: "32", est_notional_usd: "1270900",
+    pnl_plus1_before: "13300", pnl_plus1_after: "0", explanation: "The fund is long 1,000,000 GBP.", assumptions: ["Illustrative contract terms."], created_ts: "2026-10-25T12:00:00Z",
     executed_ts: null, filled_quantity: 0, exec_price: null, exec_fees_usd: "0", actual_exposure_after: null, parent_order_id: null, result: null,
   };
 
   it("calculates a hedge proposal, shows before/after, and executes it on approval", async () => {
     const calls = mockApi({
-      "GET /portfolio": portfolio, "GET /portfolio/risk": { spot: "1.27", futures_price: "1.271", pre_hedge_exposure_gbp: "1000000", post_hedge_exposure_gbp: "1000000", rows: [], assumptions: [] },
+      "GET /portfolio": portfolio, "GET /portfolio/risk": { spot: "1.33", futures_price: "1.331", pre_hedge_exposure_gbp: "1000000", post_hedge_exposure_gbp: "1000000", rows: [], assumptions: [] },
       "POST /hedges/proposals": proposal,
-      "POST /hedges/proposals/HDG-000001-dddd/execute": { ...proposal, status: "executed", filled_quantity: 16, result: "Filled 16 of 16 contracts at 1.2709." },
+      "POST /hedges/proposals/HDG-000001-dddd/execute": { ...proposal, status: "executed", filled_quantity: 16, result: "Filled 16 of 16 contracts at 1.3309." },
     });
     renderAt("/fx?tab=hedging");
     await userEvent.click(await screen.findByRole("button", { name: "Calculate proposed hedge" }));

@@ -103,42 +103,51 @@ cash + inventory × mark − initial_cash  ==  realized + unrealized − fees
 
 ## 6. Foreign exchange pairs
 
-A pair **BASE/QUOTE** is priced in QUOTE per 1 BASE. **GBP/USD 1.27000** means
-£1 costs $1.27. Buying GBP/USD means buying pounds and paying dollars.
+A pair **BASE/QUOTE** is priced in QUOTE per 1 BASE. **GBP/USD 1.33000** means
+£1 costs $1.33. Buying GBP/USD means buying pounds and paying dollars.
 A **pip** is 0.0001 for USD-quoted pairs (0.01 for JPY-quoted); MarketLab prices
 in tenths of a pip. Quantities are in base-currency units.
 
-## 7. Fragmented liquidity and order routing
+## 7. A-book, B-book, C-book and order routing
 
-The same currency trades on several venues. MarketLab has three independent
-books with hypothetical profiles:
+The simulated hedge fund trades through a broker, which can handle each order in one of three ways. These are
+the standard terms in FX brokerage, and MarketLab's books A, B and C follow them:
 
-| Book | Profile (default) |
-|---|---|
-| A | tightest spread (0.6 pip) but only 200,000 per level |
-| B | 1.0 pip spread, 1,000,000 per level |
-| C | 0.7 pip spread, lowest fee, but 45 ms simulated latency |
+| Book | Who takes the other side | Broker's risk | Default (hypothetical) quotes around mid 1.33000 |
+|---|---|---|---|
+| **A-book**: straight through | Outside liquidity providers (banks) | None; earns the 0.2 bp fee | 1.32996 / 1.33004, five levels of £2m, 30 ms, optional *last look* rejections |
+| **B-book**: in-house | The broker itself, betting against the client | The full mirror image of the client's position | 1.32997 / 1.33003, no fee, 1 ms, up to £3m per order |
+| **C-book**: hybrid | The broker keeps a share (50% by default) and passes the rest to the LPs | The kept share | 1.32996 / 1.33004, no fee, 2 ms |
 
-The **smart router** ranks every price level on every book by *effective
-price*:
+**The broker's desk** holds the B-book and C-book risk. Its position is always the opposite of what the fund
+bought from it, so when the fund loses the desk gains, and vice versa (minus the spread it earned). To limit
+that risk the desk hedges its pound exposure with **British pound futures modelled on CME 6B** (£62,500 per
+contract, USD per GBP): automatically once the exposure exceeds a threshold (£2m by default), or on request.
+Other currencies are hedged by trading spot with the liquidity providers. Contracts are whole numbers, so a
+small residual remains (e.g. £1,030,000 → 16 contracts, £30,000 left).
+
+**Last look**: an A-book liquidity provider may reject a fill during the round trip. The rejected quantity is
+reported unfilled (MarketLab does not automatically retry it).
+
+**Smart routing** ranks every price level on every book by *effective price*:
 
 ```
 effective = price × (1 ± (fee_bps + latency_penalty_bps_per_100ms × latency_ms/100) / 10,000)
             (+ for buys, − for sells)
 ```
 
-and fills from the best effective price until the order is complete. A large
-order therefore becomes several **child orders** across books. The parent's
-filled quantity is the sum of its children and its **weighted-average price**
-(VWAP) is Σ(price × qty) / Σ qty. The latency penalty is a modelling choice: a
-proxy for the risk the price moves while a slow order travels. Execution in the
-simulator is instantaneous; latency is recorded, not slept.
+and fills from the best until the order is complete, so a large order becomes several **child orders**. The
+parent's filled quantity is the sum of its children and its **weighted-average price** (VWAP) is
+Σ(price × qty) / Σ qty. The broker's follow-up trades (the C-book's pass-through share, hedges) are recorded
+separately and are not the fund's fills. Real brokers also route by client, sending "toxic" flow from clients who
+tend to win to the A-book and often B-booking the rest; MarketLab routes by cost only. Execution is instantaneous;
+latency is recorded, not slept.
 
 ## 8. Currency exposure
 
 **Exposure** is how much a portfolio's value (in USD) changes when a currency
-moves. A fund holding £1,000,000 at 1.27 has £1m of GBP exposure (≈ $1.27m) and
-gains about $12,700 if GBP rises 1%.
+moves. A fund holding £1,000,000 at 1.33 has £1m of GBP exposure (≈ $1.33m) and
+gains about $13,300 if GBP rises 1%.
 
 MarketLab keeps these separate: **cash balances** per currency; **exposure** =
 spot balances + futures-equivalent amounts; **derivative positions** (futures

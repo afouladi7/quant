@@ -1,12 +1,25 @@
 import { http } from "./client";
 import type { Level, Order, Trade } from "./mm";
 
+export type BookRole = "a_book" | "b_book" | "c_book";
 export interface BookConfig {
-  name: string; description: string; spread_pips: string; price_offset_pips: string; levels: number; level_step_pips: string;
-  qty_per_level: number; fee_bps: string; latency_ms: number;
+  name: string; role: BookRole; description: string; spread_pips: string; price_offset_pips: string; fee_bps: string; latency_ms: number;
+  levels: number; level_step_pips: string; qty_per_level: number; last_look_reject_pct: string;
+  max_client_order: number; keep_pct: string;
+}
+export interface RoleInfo { title: string; who: string; how: string }
+export interface DeskPair {
+  pair: string; position: number; avg_price: string | null; mid: string; spread_earned: string; realized: string; unrealized: string;
+  fees: string; pnl_usd: string; client_volume: number; externalised: number; direction: string;
+}
+export interface Desk {
+  config: { hedge_threshold: number; max_position: number };
+  pairs: DeskPair[]; gbp_exposure: number; total_pnl_usd: string;
+  futures: { spec: { symbol: string; contract_size: number; label: string }; contracts: number; gbp_equivalent: number; price: string; unrealized_usd: string; realized_usd: string; fees_usd: string };
+  log: { kind: string; book: string; pair: string; side: string; quantity: number; price: string; fee?: string }[];
 }
 export interface BookSnap {
-  name: string; config: BookConfig; pair: string; best_bid: string | null; best_ask: string | null; spread: string | null;
+  name: string; config: BookConfig; role: BookRole; role_info: RoleInfo; label: string; pair: string; best_bid: string | null; best_ask: string | null; spread: string | null;
   bids: Level[]; asks: Level[]; bid_depth: number; ask_depth: number; fill_rate: string | null; fund_requested_qty: number;
   fund_filled_qty: number; recent_trades: Trade[]; resting_fund_orders: Order[]; latency_ms: number;
 }
@@ -34,6 +47,7 @@ export interface Scenario { id: string; title: string; expect: string; steps: { 
 export interface FXState {
   pair: PairSpec; pairs: string[]; mid: string; mids: Record<string, string>; weights: { include_fees: boolean; latency_penalty_bps_per_100ms: string };
   books: BookSnap[]; parents: Parent[]; rate_series: { tick: number; mid: string }[]; scenario: Scenario | null; notice: string;
+  desk: Desk;
 }
 export interface OrderBody {
   pair: string; side: string; type: string; quantity: number; limit_price?: string; routing_mode: string;
@@ -52,6 +66,8 @@ export const fxApi = {
   putBook: (cfg: BookConfig) => http.put<BookConfig>(`/fx/books/${cfg.name}/config`, cfg),
   setRate: (pair: string, body: { rate?: string; shift_pct?: string }) => http.post("/fx/rates", { pair, ...body }),
   reset: () => http.post<FXState>("/fx/reset"),
+  deskHedge: (pair: string) => http.post<{ message: string; before: number; after: number }>("/fx/desk/hedge", { pair }),
+  deskConfig: (cfg: { hedge_threshold: number; max_position: number }) => http.put("/fx/desk/config", cfg),
 };
 
 // ---- portfolio / hedging --------------------------------------------------------------

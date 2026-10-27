@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { fxApi, type BookConfig, type BookSnap, type FXState, type OrderBody, type Parent, type Plan, type Scenario } from "../api/fx";
+import { fxApi, type BookConfig, type BookSnap, type Desk, type FXState, type OrderBody, type Parent, type Plan, type Scenario } from "../api/fx";
 import { useStream } from "../api/stream";
 import { BarList, LineChart } from "../components/charts";
 import { EventTimeline } from "../components/EventTimeline";
 import { OrderTrace } from "../components/OrderTrace";
 import { StartHere, Term } from "../components/learn";
-import { ErrorNote, Explain, Loading, Panel, StatusBadge, Tabs, TechOnly, useAction } from "../components/ui";
-import { compact, fmtNum, fmtPct } from "../lib/format";
+import { ErrorNote, Explain, Loading, Panel, Stat, StatusBadge, Tabs, TechOnly, useAction } from "../components/ui";
+import { compact, fmtNum, fmtPct, fmtSignedMoney } from "../lib/format";
 import { useLive } from "../lib/useLive";
 import { Hedging } from "./Hedging";
 
@@ -22,9 +22,10 @@ export function FX() {
         <div>
           <h1>FX Order Routing &amp; Hedging</h1>
           <p className="lead">
-            A simulated hedge fund trades <Term id="fx_pair">currencies</Term> on three independent order books, A, B and C,
-            that each offer different prices, amounts, fees and speeds. Then it manages the currency risk it has taken on by{" "}
-            <Term id="hedge">hedging</Term>. Rates and book settings are synthetic, not live market data.
+            A simulated hedge fund trades <Term id="fx_pair">currencies</Term> through a broker. The broker can pass the order to
+            outside banks (<Term id="a_book">A-book</Term>), take the other side itself (<Term id="b_book">B-book</Term>), or do a bit
+            of both (<Term id="c_book">C-book</Term>). Then the fund manages its currency risk by <Term id="hedge">hedging</Term>.
+            Rates and book settings are synthetic, not live market data.
           </p>
         </div>
       </header>
@@ -49,8 +50,8 @@ function Routing() {
   return (
     <>
       <StartHere steps={[
-        <>Load <b>scenario 1</b> and run its steps: the best price runs out, so a big order gets worse prices.</>,
-        <>Run <b>scenario 4</b>: the smart router splits one order across all three books. The <b>Routing result</b> shows how.</>,
+        <>Run <b>scenarios 1, 2 and 4</b>: the same order on the A-book, B-book and C-book. Watch who ends up holding the risk in <b>The broker's desk</b>.</>,
+        <>Run <b>scenario 3</b>: the fund is right, so the broker hedges with 6B futures.</>,
         <>Then open the <b>Portfolio & hedging</b> tab to see how the fund protects itself from currency moves.</>,
       ]} />
       <ErrorNote error={error} />
@@ -76,6 +77,7 @@ function Routing() {
       <div className="grid-3">
         {data.books.map((b) => <BookCard key={b.name} b={b} digits={digits} onChange={refresh} />)}
       </div>
+      <DeskPanel desk={data.desk} onChange={refresh} />
       <ParentList parents={data.parents} onTrace={setTrace} onSelect={setLastParent} onChange={refresh} />
       <EventTimeline modules={["fx"]} title="FX events" limit={14} />
     </>
@@ -89,7 +91,7 @@ function Scenarios({ state, onChange, onParent }: { state: FXState; onChange: ()
   useEffect(() => { void fxApi.scenarios().then(setList).catch(() => undefined); }, []);
   const active = state.scenario;
   return (
-    <Panel title="Routing scenarios" id="fx-scen" help={<p>Six small, repeatable experiments. Each sets the three books to known prices (GBP/USD at 1.27000), pauses the clock, and runs one or two orders so you can see a specific routing effect. Read the card, load it, then run its steps.</p>} actions={<span className="small muted">GBP/USD fixed at 1.27000 · simulation paused · reproducible</span>}>
+    <Panel title="Routing scenarios" id="fx-scen" help={<p>Eight small, repeatable experiments. Each sets the three books to known prices (GBP/USD at 1.33000), pauses the clock, and runs one or two orders so you can see a specific routing effect. Read the card, load it, then run its steps.</p>} actions={<span className="small muted">GBP/USD fixed at 1.33000 · simulation paused · reproducible</span>}>
       <div className="scenario-grid">
         {list.map((s) => (
           <div key={s.id} className={`preset ${active?.id === s.id ? "active" : ""}`}>
@@ -244,7 +246,7 @@ function RoutingResult({ parent, books, onTrace }: { parent: Parent; books: Book
               <div key={name} className={`route-child ${kids.length ? "on" : ""}`} style={{ animationDelay: `${i * 120}ms` }}>
                 <span className="route-arrow" aria-hidden="true">{kids.length ? "━━▶" : "┄┄"}</span>
                 <div>
-                  <b>Book {name}</b> <span className="small muted">{byBook[name]?.config.description}</span>
+                  <b>{byBook[name]?.label ?? `Book ${name}`}</b> <span className="small muted">{byBook[name]?.role_info.who}</span>
                   {kids.length ? (
                     <div className="small">
                       sent {fmtNum(qty)} · filled {fmtNum(filled)} {kids.map((c) => <StatusBadge key={c.order_id} status={c.status} filled={c.filled_qty} quantity={c.quantity} />)}
@@ -275,14 +277,16 @@ function Comparison({ books, pip }: { books: BookSnap[]; pip: string }) {
   const bestBid = Math.max(...books.map((b) => Number(b.best_bid ?? -Infinity)));
   const bestAsk = Math.min(...books.map((b) => Number(b.best_ask ?? Infinity)));
   return (
-    <Panel title="Books compared" id="fx-compare" help={<p>The three books side by side. ★ marks the best bid and ask. <Term id="depth">Depth</Term> is the total available; a book can have the best price but little depth.</p>} actions={<span className="small muted">★ = best price across books</span>}>
+    <Panel title="Books compared" id="fx-compare" help={<><p>The three ways the broker can handle the fund's order, side by side. ★ marks the best bid and ask.</p>
+      <p><Term id="a_book">A-book</Term>: passed to outside liquidity providers. <Term id="b_book">B-book</Term>: the broker takes the other side itself. <Term id="c_book">C-book</Term>: a mix of both. <Term id="depth">Depth</Term> is how much each will trade.</p></>} actions={<span className="small muted">★ = best price across books</span>}>
       <div className="scroll">
         <table className="table">
-          <thead><tr><th>Book</th><th className="num">Best bid</th><th className="num">Best ask</th><th className="num">Spread</th><th className="num">Bid depth</th><th className="num">Ask depth</th><th className="num">Fee</th><th className="num">Latency</th><th className="num">Fund fill rate</th></tr></thead>
+          <thead><tr><th>Book</th><th>Who takes the other side</th><th className="num">Best bid</th><th className="num">Best ask</th><th className="num">Spread</th><th className="num">Bid depth</th><th className="num">Ask depth</th><th className="num">Fee</th><th className="num">Latency</th><th className="num">Fund fill rate</th></tr></thead>
           <tbody>
             {books.map((b) => (
               <tr key={b.name}>
-                <th scope="row">Book {b.name} <span className="small muted">{b.config.description}</span></th>
+                <th scope="row">{b.label}</th>
+                <td className="small">{b.role === "a_book" ? "Outside liquidity providers" : b.role === "b_book" ? "The broker itself" : `Broker keeps ${Number(b.config.keep_pct).toFixed(0)}%, LPs take the rest`}</td>
                 <td className="num">{b.best_bid ?? "—"} {Number(b.best_bid) === bestBid && "★"}</td>
                 <td className="num">{b.best_ask ?? "—"} {Number(b.best_ask) === bestAsk && "★"}</td>
                 <td className="num">{b.spread ? `${(Number(b.spread) / Number(pip)).toFixed(1)} pips` : "—"}</td>
@@ -311,12 +315,21 @@ function BookCard({ b, digits, onChange }: { b: BookSnap; digits: number; onChan
   const bids = b.bids.slice(0, 5);
   const max = Math.max(1, ...asks.map((l) => l.quantity), ...bids.map((l) => l.quantity));
   return (
-    <Panel title={`Book ${b.name}`} id={`book-${b.name}`} actions={<button type="button" className="link" onClick={() => setEdit(!edit)}>{edit ? "Close" : "Configure"}</button>}>
-      <p className="small muted">{b.config.description} · hypothetical · fee {b.config.fee_bps} bps · latency {b.latency_ms} ms</p>
+    <Panel title={b.label} id={`book-${b.name}`} actions={<button type="button" className="link" onClick={() => setEdit(!edit)}>{edit ? "Close" : "Configure"}</button>}
+      help={<p>{b.role_info.how}</p>}>
+      <p className="small"><b>{b.role_info.who}</b></p>
+      <p className="small muted">
+        hypothetical · fee {b.config.fee_bps} bps · latency {b.latency_ms} ms
+        {b.role === "a_book" && <> · <Term id="last_look">last look</Term> rejects {Number(b.config.last_look_reject_pct).toFixed(0)}%</>}
+        {b.role !== "a_book" && <> · accepts up to {compact(b.config.max_client_order)} per order</>}
+        {b.role === "c_book" && <> · keeps {Number(b.config.keep_pct).toFixed(0)}% of the risk</>}
+      </p>
       {edit ? (
         <form onSubmit={(e) => { e.preventDefault(); void run(async () => { await fxApi.putBook(cfg); setEdit(false); onChange(); }); }}>
           <div className="form-grid tight">
-            {([["spread_pips", "Spread (pips)"], ["levels", "Levels"], ["level_step_pips", "Level step (pips)"], ["qty_per_level", "Qty per level"], ["fee_bps", "Fee (bps)"], ["latency_ms", "Latency (ms)"], ["price_offset_pips", "Price offset (pips)"]] as [keyof BookConfig, string][]).map(([k, label]) => (
+            {((b.role === "a_book"
+              ? [["spread_pips", "LP spread (pips)"], ["levels", "Levels"], ["level_step_pips", "Level step (pips)"], ["qty_per_level", "Qty per level"], ["fee_bps", "Fee (bps)"], ["latency_ms", "Latency (ms)"], ["last_look_reject_pct", "Last-look rejects (%)"]]
+              : [["spread_pips", "Broker spread (pips)"], ["max_client_order", "Max client order"], ["fee_bps", "Fee (bps)"], ["latency_ms", "Latency (ms)"], ...(b.role === "c_book" ? [["keep_pct", "Broker keeps (%)"]] : [])]) as [keyof BookConfig, string][]).map(([k, label]) => (
               <label key={k}>{label}
                 <input type="number" step="any" value={String(cfg[k])} onChange={(e) => setCfg({ ...cfg, [k]: typeof b.config[k] === "number" ? Number(e.target.value) : e.target.value })} />
               </label>
@@ -331,12 +344,12 @@ function BookCard({ b, digits, onChange }: { b: BookSnap; digits: number; onChan
           <tbody>
             {asks.map((l) => (
               <tr key={`a${l.price}`} className="ladder-ask"><td /><td className="num price">{Number(l.price).toFixed(digits)}</td>
-                <td><span className="qty qty-ask"><span className="qty-bar" style={{ width: `${(l.quantity / max) * 100}%` }} /><span className="qty-text">{compact(l.quantity)}{l.by_owner.fund ? <span className="chip mm">FUND</span> : null}</span></span></td></tr>
+                <td><span className="qty qty-ask"><span className="qty-bar" style={{ width: `${(l.quantity / max) * 100}%` }} /><span className="qty-text">{compact(l.quantity)}{l.by_owner.fund ? <span className="chip mm">FUND</span> : null}{l.by_owner.desk ? <span className="chip">BROKER</span> : null}</span></span></td></tr>
             ))}
             <tr className="ladder-spread"><td colSpan={3}>spread {b.spread ? Number(b.spread).toFixed(digits) : "—"}</td></tr>
             {bids.map((l) => (
               <tr key={`b${l.price}`} className="ladder-bid">
-                <td><span className="qty qty-bid"><span className="qty-bar" style={{ width: `${(l.quantity / max) * 100}%` }} /><span className="qty-text">{l.by_owner.fund ? <span className="chip mm">FUND</span> : null}{compact(l.quantity)}</span></span></td>
+                <td><span className="qty qty-bid"><span className="qty-bar" style={{ width: `${(l.quantity / max) * 100}%` }} /><span className="qty-text">{l.by_owner.fund ? <span className="chip mm">FUND</span> : null}{l.by_owner.desk ? <span className="chip">BROKER</span> : null}{compact(l.quantity)}</span></span></td>
                 <td className="num price">{Number(l.price).toFixed(digits)}</td><td /></tr>
             ))}
           </tbody>
@@ -377,6 +390,49 @@ function ParentList({ parents, onTrace, onSelect, onChange }: { parents: Parent[
         </div>
       )}
       <ErrorNote error={cancel.error} />
+    </Panel>
+  );
+}
+
+function DeskPanel({ desk, onChange }: { desk: Desk; onChange: () => void }) {
+  const [threshold, setThreshold] = useState(String(desk.config.hedge_threshold));
+  const [msg, setMsg] = useState<string | null>(null);
+  const { busy, error, run } = useAction();
+  useEffect(() => setThreshold(String(desk.config.hedge_threshold)), [desk.config.hedge_threshold]);
+  const gbp = desk.pairs.find((p) => p.pair === "GBP/USD");
+  return (
+    <Panel title="The broker's desk (B-book and C-book risk)" id="fx-desk" help={<>
+      <p>Every time the fund trades on the <Term id="b_book">B-book</Term> or <Term id="c_book">C-book</Term>, the broker's desk takes the other side,
+        so its position is the mirror image of the fund's. When the fund loses money, the desk makes it, and the other way round.</p>
+      <p>To limit that risk the desk <Term id="hedge">hedges</Term> its pound exposure with British pound futures (<Term id="sixb">6B</Term>, £62,500 per contract):
+        automatically once the exposure passes the threshold, or when you press the button.</p>
+    </>}>
+      <div className="stats">
+        <Stat label="GBP position (spot)" value={`${fmtNum(gbp?.position ?? 0)} GBP`} hint={gbp ? `${gbp.direction}: gains if GBP ${(gbp.position ?? 0) < 0 ? "falls" : "rises"}` : "no trades yet"} />
+        <Stat label="6B futures" value={`${desk.futures.contracts} contracts`} hint={`${fmtNum(desk.futures.gbp_equivalent)} GBP equivalent`} />
+        <Stat label="Net GBP exposure" value={`${fmtNum(desk.gbp_exposure)} GBP`} hint="spot + futures" />
+        <Stat label="Desk P&L" value={fmtSignedMoney(desk.total_pnl_usd)} tone={desk.total_pnl_usd} hint="spread earned + market moves − costs" />
+        {gbp && <Stat label="Spread earned (GBP/USD)" value={fmtSignedMoney(gbp.spread_earned)} hint="vs. mid, on client trades" />}
+        {gbp && <Stat label="Passed to LPs" value={`${fmtNum(gbp.externalised)} GBP`} hint="C-book share and spot hedges" />}
+      </div>
+      <div className="form-row">
+        <button type="button" className="btn primary" disabled={busy} onClick={() => run(async () => { setMsg((await fxApi.deskHedge("GBP/USD")).message); onChange(); })}>Hedge GBP with 6B futures now</button>
+        <label>Auto-hedge when GBP exposure exceeds (0 = never)
+          <input type="number" min={0} step={1000} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+        </label>
+        <button type="button" className="btn" disabled={busy} onClick={() => run(async () => { await fxApi.deskConfig({ ...desk.config, hedge_threshold: Number(threshold) }); onChange(); })}>Save threshold</button>
+      </div>
+      {msg && <p className="observe small">{msg}</p>}
+      <ErrorNote error={error} />
+      <TechOnly>
+        <p className="small muted">{desk.futures.spec.label}</p>
+        {desk.log.length > 0 && (
+          <table className="table compact">
+            <thead><tr><th>Desk action</th><th>Book</th><th>Side</th><th className="num">Qty</th><th className="num">Price</th></tr></thead>
+            <tbody>{desk.log.map((l, i) => <tr key={i}><td>{l.kind}</td><td>{l.book}</td><td>{l.side}</td><td className="num">{fmtNum(l.quantity)}{l.book === "6B" ? " contracts" : ""}</td><td className="num">{l.price}</td></tr>)}</tbody>
+          </table>
+        )}
+      </TechOnly>
     </Panel>
   );
 }

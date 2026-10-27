@@ -111,10 +111,10 @@ if [ -n "$URL" ]; then
   check "MM: market maker re-quoted after the trade (skewed bid 99.94)" has '"bid":"99.94"' "$(get /api/v1/mm/quote)"
 
   # ---- FX routing and hedging ----
-  post /api/v1/fx/scenarios/4/reset >/dev/null
-  FX=$(post /api/v1/fx/scenarios/4/step)
+  post /api/v1/fx/scenarios/6/reset >/dev/null
+  FX=$(post /api/v1/fx/scenarios/6/step)
   fx_split() { has '"status":"filled"' "$FX" && [ "$(grep -o '"book":"[ABC]","quantity"' <<<"$FX" | sort -u | wc -l)" -ge 2 ]; }
-  check "FX: smart routing splits a 1,000,000 parent across books and fills it" fx_split
+  check "FX: smart routing splits a 2,000,000 parent across the A-, B- and C-books" fx_split
   post /api/v1/portfolio/scenarios/gbp-hedge/reset >/dev/null
   for _ in 1 2 3; do post /api/v1/portfolio/scenarios/gbp-hedge/step '{"instrument":"futures"}' >/dev/null; done
   check "Hedging: futures hedge executes and neutralises GBP exposure" has '"status":"executed"' "$(post /api/v1/portfolio/scenarios/gbp-hedge/step '{"instrument":"futures"}')"

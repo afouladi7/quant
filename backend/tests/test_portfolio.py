@@ -18,21 +18,21 @@ def pnl_identity(s: dict) -> None:
 def test_futures_price_basis_and_convergence() -> None:
     f = FuturesBook(FuturesSpec(days_total=90, days_to_expiry=45, initial_basis_pips=D("12")))
     assert f.basis() == D("0.0006")
-    assert f.price(D("1.27000")) == D("1.2706")
+    assert f.price(D("1.33000")) == D("1.3306")
     f.spec.days_to_expiry = 0
-    assert f.price(D("1.27000")) == D("1.2700")
+    assert f.price(D("1.33000")) == D("1.3300")
 
 
 def test_futures_pnl_and_partial_fill() -> None:
     f = FuturesBook(FuturesSpec(max_fill_per_order=10, half_spread_ticks=0, initial_basis_pips=D("0")))
-    fill = f.execute(Side.SELL, 16, D("1.2700"))
+    fill = f.execute(Side.SELL, 16, D("1.3300"))
     assert fill.filled == 10 and fill.fee == D("20.00")
     assert f.gbp_equivalent() == -625_000
-    assert f.unrealized_usd(D("1.2600")) == D("0.0100") * 10 * 62_500  # short gains when GBP falls
-    realized = f.settle(D("1.2650"))
+    assert f.unrealized_usd(D("1.3200")) == D("0.0100") * 10 * 62_500  # short gains when GBP falls
+    realized = f.settle(D("1.3250"))
     assert realized == D("0.0050") * 10 * 62_500 and f.contracts == 0 and f.expired
     with pytest.raises(ValueError):
-        f.execute(Side.BUY, 1, D("1.27"))
+        f.execute(Side.BUY, 1, D("1.33"))
 
 
 # ---- portfolio through the API ---------------------------------------------------------
@@ -49,16 +49,16 @@ def test_fx_fill_updates_balances_and_exposure(client: TestClient) -> None:
     assert bal["USD"] == D(20_000_000) - D(parent["vwap"]) * 1_000_000 - D(parent["total_fees"])
     gbp = next(e for e in s["exposures"] if e["currency"] == "GBP")
     assert D(gbp["net_exposure"]) == D(1_000_000) and gbp["direction"] == "long"
-    assert D(gbp["pnl_if_plus_1pct_usd"]) == D("12700.00")
+    assert D(gbp["pnl_if_plus_1pct_usd"]) == D("13300.00")
     pnl_identity(s)
 
 
 def test_rate_change_pnl(client: TestClient) -> None:
     buy_gbp(client)
     before = D(client.get("/api/v1/portfolio").json()["equity_usd"])
-    client.post("/api/v1/fx/rates", json={"pair": "GBP/USD", "rate": "1.28000"})
+    client.post("/api/v1/fx/rates", json={"pair": "GBP/USD", "rate": "1.34000"})
     s = client.get("/api/v1/portfolio").json()
-    assert D(s["equity_usd"]) - before == D("10000.00")  # 1,000,000 × (1.28 − 1.27)
+    assert D(s["equity_usd"]) - before == D("10000.00")  # 1,000,000 × (1.28 − 1.33)
     pnl_identity(s)
 
 

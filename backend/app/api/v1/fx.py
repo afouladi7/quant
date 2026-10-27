@@ -10,7 +10,7 @@ from app.core.errors import ApiError
 from app.core.idempotency import IdempotencyConflict, fingerprint
 from app.core.jsonresp import jsonify
 from app.persistence.configs import save_all
-from app.fx.config import PAIRS, BookConfig, RoutingWeights
+from app.fx.config import PAIRS, BookConfig, DeskConfig, RoutingWeights
 from app.fx.router import RoutingPlan
 from app.fx.scenarios import SCENARIOS
 from app.fx.service import plan_to_dict
@@ -108,9 +108,12 @@ async def get_order(c: Container, parent_id: str) -> Response:
     p = c.fx.parents.get(parent_id)
     if p is None:
         raise ApiError(404, "not_found", f"Unknown parent order {parent_id}")
-    trades = [t for b in c.fx.books.values() for t in b.venues[p.pair].trades if t.correlation_id == p.id
-              or any(ch.order_id in (t.taker_order_id, t.maker_order_id) for ch in p.children)]
-    return jsonify({"parent": p, "trades": sorted(trades, key=lambda t: t.ts)})
+    child_ids = {ch.order_id for ch in p.children}
+    venues = [b.venues[p.pair] for b in c.fx.books.values()]
+    trades = [t for v in venues for t in v.trades if child_ids & {t.taker_order_id, t.maker_order_id}]
+    # The broker's own follow-up trades (C-book pass-through, hedges) share the correlation id but are not the fund's fills.
+    desk_trades = [t for v in venues for t in v.trades if t.correlation_id == p.id and not child_ids & {t.taker_order_id, t.maker_order_id}]
+    return jsonify({"parent": p, "trades": sorted(trades, key=lambda t: t.ts), "desk_trades": sorted(desk_trades, key=lambda t: t.ts)})
 
 
 @router.delete("/orders/{parent_id}")
@@ -134,6 +137,24 @@ async def set_rate(c: Container, body: RateRequest) -> Response:
     except ValueError as exc:
         raise ApiError(422, "invalid_rate", str(exc)) from exc
     return jsonify({"pair": pair, "mid": c.fx.mids[pair]})
+
+
+class DeskHedgeRequest(BaseModel):
+    pair: str = "GBP/USD"
+
+
+@router.post("/desk/hedge")
+async def desk_hedge(c: Container, body: DeskHedgeRequest) -> Response:
+    """Flatten the broker desk's exposure now: GBP with 6B-style futures, other pairs with the liquidity providers."""
+    return jsonify(c.fx.desk_hedge(_pair(body.pair)))
+
+
+@router.put("/desk/config")
+async def desk_config(c: Container, cfg: DeskConfig) -> Response:
+    """Change the desk's hedging threshold and position limit."""
+    c.fx.desk.config = cfg
+    c.fx.refresh_all()
+    return jsonify(cfg)
 
 
 @router.post("/reset")

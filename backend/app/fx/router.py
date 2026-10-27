@@ -29,6 +29,7 @@ class BookDepth:
     fee_bps: Decimal
     latency_ms: int
     levels: list[tuple[Decimal, int]]  # maker side, best first: (price, qty)
+    label: str = ""  # e.g. "Book B (in-house book)" for explanations
 
 
 @dataclass
@@ -137,21 +138,22 @@ def plan_route(
 
 
 def explain(plan: RoutingPlan, books: list[BookDepth]) -> str:
+    names = {b.book: (b.label or f"Book {b.book}") for b in books}
     side_word = "buy" if plan.side is Side.BUY else "sell"
     if not plan.allocations:
         why = "no eligible liquidity" + (f" at or better than the limit {plan.limit_price}" if plan.limit_price is not None else "")
-        return f"Nothing could be routed to {'any book' if plan.mode == 'smart' else 'Book ' + plan.mode}: {why}."
-    parts = [f"{a.quantity:,} to Book {a.book}" for a in plan.allocations]
+        return f"Nothing could be routed to {'any book' if plan.mode == 'smart' else names.get(plan.mode, 'Book ' + plan.mode)}: {why}."
+    parts = [f"{a.quantity:,} to {names[a.book]}" for a in plan.allocations]
     text = f"To {side_word} {plan.quantity:,}, the router sent " + ", ".join(parts) + "."
     if plan.mode == "smart" and len(plan.allocations) > 1:
         first = next(c for c in plan.candidates if c.rank == 1)
         depth_first = sum(c.available for c in plan.candidates if c.book == first.book and c.eligible and c.effective_price == first.effective_price)
         text += (
-            f" Book {first.book} had the best effective price ({first.price} raw, {first.effective_price.quantize(Decimal('0.0000001'))} after "
+            f" {names[first.book]} had the best effective price ({first.price} raw, {first.effective_price.quantize(Decimal('0.0000001'))} after "
             f"{'fees and ' if plan.include_fees else ''}latency) but only {depth_first:,} available there, so the order was split."
         )
     elif plan.mode == "smart":
-        text += f" Book {plan.allocations[0].book} could fill it at the best effective price."
+        text += f" {names[plan.allocations[0].book]} could fill it at the best effective price."
     if plan.mode == "smart":
         used = {a.book for a in plan.allocations}
         worst_used = max(a.worst_price for a in plan.allocations) if plan.side is Side.BUY else min(a.worst_price for a in plan.allocations)
@@ -160,7 +162,7 @@ def explain(plan: RoutingPlan, books: list[BookDepth]) -> str:
             best = next(c for c in plan.candidates if c.book == b and c.eligible)
             better_raw = best.price < worst_used if plan.side is Side.BUY else best.price > worst_used
             if better_raw:
-                skipped.append(f"Book {b} (raw {best.price}, but {best.effective_price.quantize(Decimal('0.0000001'))} after costs)")
+                skipped.append(f"{names[b]} (raw {best.price}, but {best.effective_price.quantize(Decimal('0.0000001'))} after costs)")
         if skipped:
             text += " Skipped despite a better raw price: " + "; ".join(skipped) + "."
     if plan.unfilled_qty:

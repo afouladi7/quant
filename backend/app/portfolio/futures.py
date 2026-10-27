@@ -29,7 +29,7 @@ from app.markets.models import Side
 
 
 class FuturesSpec(BaseModel):
-    symbol: str = "GBPUSD-FUT (illustrative)"
+    symbol: str = "6B-style GBP future (illustrative)"
     underlying: str = "GBP/USD"
     contract_size: int = Field(62_500, ge=1000, le=10_000_000, description="GBP per contract")
     tick_size: Decimal = Field(Decimal("0.0001"), gt=0, le=Decimal("0.01"))
@@ -41,7 +41,7 @@ class FuturesSpec(BaseModel):
     initial_margin: Decimal = Field(Decimal("3000"), ge=0, le=1_000_000, description="USD per contract (illustrative)")
     maintenance_margin: Decimal = Field(Decimal("2700"), ge=0, le=1_000_000)
     max_fill_per_order: int = Field(100, ge=1, le=100_000, description="Contracts available per order (liquidity)")
-    label: str = "Illustrative contract terms. Real GBP futures differ by exchange and contract."
+    label: str = "Modelled on CME British pound futures (6B): £62,500 per contract, USD per GBP. Terms are simplified and illustrative."
 
 
 class FuturesFill(BaseModel):

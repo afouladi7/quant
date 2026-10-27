@@ -473,3 +473,4 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .method-get { color: var(--series-1); } .method-post { color: var(--series-3); } .method-put { color: var(--warn); } .method-delete { color: var(--danger); }
 main > .page { width: 100%; }
 .panel-actions { margin-left: auto; }
+.chip, .qty-text { white-space: nowrap; }

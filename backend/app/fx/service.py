@@ -22,13 +22,15 @@ from app.core.clock import utc_now
 from app.core.ids import IdGenerator
 from app.core.money import dec, money, round_to_tick
 from app.events.bus import EventBus
-from app.fx.config import DEFAULT_BOOKS, PAIRS, BookConfig, PairSpec, RoutingWeights
+from app.fx.config import DEFAULT_BOOKS, PAIRS, ROLE_INFO, BookConfig, DeskConfig, PairSpec, RoutingWeights
+from app.fx.desk import Desk
 from app.fx.router import BookDepth, RoutingPlan, plan_route
 from app.markets.models import Order, OrderStatus, OrderType, Side, TimeInForce, Trade
 from app.markets.venue import FeeSchedule, Venue
 
 FUND = "fund"
 LP = "lp"
+DESK = "desk"  # the broker's own trading desk (B-book / C-book counterparty)
 AVG_Q = Decimal("0.0000001")
 
 FundFillListener = Callable[[Trade, Order, "ParentOrder"], None]
@@ -109,26 +111,46 @@ class Book:
             v = Venue(
                 f"Book {cfg.name}", sym, tick_size=spec.tick_size, lot_size=spec.lot_size,
                 fees=FeeSchedule(taker_bps=cfg.fee_bps, money_places="0.01"), bus=bus, ids=ids,
-                tick_source=tick_source, module="fx", max_order_qty=100_000_000, quiet_owners=frozenset({LP}),
+                tick_source=tick_source, module="fx", max_order_qty=100_000_000, quiet_owners=frozenset({LP, DESK}),
             )
             self.venues[sym] = v
 
-    def refresh_liquidity(self, spec: PairSpec, mid: Decimal) -> None:
+    def refresh_liquidity(self, spec: PairSpec, mid: Decimal, desk: Desk) -> None:
         cfg = self.config
         v = self.venues[spec.symbol]
-        v.cancel_owner(LP)
         center = mid + cfg.price_offset_pips * spec.pip
         half = cfg.spread_pips * spec.pip / 2
         bid = round_to_tick(center - half, spec.tick_size, "down")
         ask = round_to_tick(center + half, spec.tick_size, "up")
         if ask <= bid:
             ask = bid + spec.tick_size
-        step = round_to_tick(cfg.level_step_pips * spec.pip, spec.tick_size, "up")
-        for i in range(cfg.levels):
-            v.submit(owner=LP, side=Side.SELL, type=OrderType.LIMIT, quantity=cfg.qty_per_level, limit_price=ask + step * i)
-            px = bid - step * i
-            if px > 0:
-                v.submit(owner=LP, side=Side.BUY, type=OrderType.LIMIT, quantity=cfg.qty_per_level, limit_price=px)
+        if cfg.role == "a_book":
+            # Outside liquidity providers stream a ladder of prices.
+            v.cancel_owner(LP)
+            step = round_to_tick(cfg.level_step_pips * spec.pip, spec.tick_size, "up")
+            for i in range(cfg.levels):
+                v.submit(owner=LP, side=Side.SELL, type=OrderType.LIMIT, quantity=cfg.qty_per_level, limit_price=ask + step * i)
+                px = bid - step * i
+                if px > 0:
+                    v.submit(owner=LP, side=Side.BUY, type=OrderType.LIMIT, quantity=cfg.qty_per_level, limit_price=px)
+            return
+        # B-book / C-book: the broker's desk quotes one price each way, sized by the risk it can still take.
+        v.cancel_owner(DESK)
+        pos = desk.position(spec.symbol)
+        keep = cfg.keep_pct / Decimal(100)
+        max_pos = desk.config.max_position
+        lot = spec.lot_size
+
+        def size(desk_capacity: int) -> int:
+            q = cfg.max_client_order if keep == 0 else min(cfg.max_client_order, int(Decimal(max(desk_capacity, 0)) / keep))
+            return q - q % lot
+
+        sell_size = size(max_pos + pos)  # desk sells to a buying client: its position falls
+        buy_size = size(max_pos - pos)
+        if sell_size > 0:
+            v.submit(owner=DESK, side=Side.SELL, type=OrderType.LIMIT, quantity=sell_size, limit_price=ask)
+        if buy_size > 0 and bid > 0:
+            v.submit(owner=DESK, side=Side.BUY, type=OrderType.LIMIT, quantity=buy_size, limit_price=bid)
 
     def set_config(self, cfg: BookConfig) -> None:
         self.config = cfg
@@ -160,6 +182,10 @@ class FXService:
         self.scenario: dict[str, Any] | None = None
         self.scenario_step = 0
         self.rate_series: dict[str, list[dict[str, Any]]] = {s: [] for s in PAIRS}
+        self.desk = Desk()
+        self.ll_rng = random.Random(1)  # last-look decisions (seeded, so scenarios repeat exactly)
+        self._pending: list[tuple[str, Side, int, str]] = []
+        self._desk_purpose = "pass-through"
         for b in self.books.values():
             for v in b.venues.values():
                 v.on_fill(self._on_fill)
@@ -176,6 +202,9 @@ class FXService:
         self._child_parent.clear()
         self.scenario = None
         self.scenario_step = 0
+        self.desk.reset()
+        self.ll_rng = random.Random(rng.getrandbits(32))
+        self._pending.clear()
         for b in self.books.values():
             b.reset()
         self.rate_series = {s: [] for s in PAIRS}
@@ -189,6 +218,7 @@ class FXService:
         for n, c in DEFAULT_BOOKS.items():
             self.books[n].set_config(c.model_copy())
         self.weights = RoutingWeights()
+        self.desk.config = DeskConfig()
         self.on_reset(rng)
 
     def on_tick(self, tick: int, sim_time: datetime) -> None:
@@ -197,6 +227,8 @@ class FXService:
             self.mids[sym] = round_to_tick(self.mids[sym] + move, spec.tick_size)
             self._record_rate(sym)
         self.refresh_all()
+        for sym in PAIRS:
+            self._settle_desk(sym)
 
     def _record_rate(self, sym: str) -> None:
         series = self.rate_series[sym]
@@ -208,7 +240,7 @@ class FXService:
         for sym, spec in PAIRS.items():
             if pair is None or sym == pair:
                 for b in self.books.values():
-                    b.refresh_liquidity(spec, self.mids[sym])
+                    b.refresh_liquidity(spec, self.mids[sym], self.desk)
 
     def set_mid(self, pair: str, mid: Decimal, reason: str = "set by user") -> Decimal:
         spec = PAIRS[pair]
@@ -240,7 +272,7 @@ class FXService:
         for name, b in self.books.items():
             v = b.venues[pair]
             levels = [(v.price(p), q) for p, q, _ in v.book.levels(maker, depth=50)]
-            out.append(BookDepth(name, b.config.fee_bps, b.config.latency_ms, levels))
+            out.append(BookDepth(name, b.config.fee_bps, b.config.latency_ms, levels, b.config.label))
         return out
 
     def preview(self, pair: str, side: Side, qty: int, limit: Decimal | None, mode: str, weights: RoutingWeights | None = None) -> RoutingPlan:
@@ -289,6 +321,7 @@ class FXService:
         # 1. Immediate children per the plan (IOC at the worst planned price, which also respects the limit).
         for a in plan.allocations:
             self._send_child(parent, a.book, a.quantity, a.worst_price, TimeInForce.IOC)
+        self._settle_desk(pair, correlation_id=parent.id)
         # 2. A limit order's remainder rests on one book at the limit price.
         remaining = quantity - parent.filled_qty
         if type_ is OrderType.LIMIT and remaining > 0:
@@ -307,12 +340,81 @@ class FXService:
             f" {parent.unfilled_qty:,} unfilled and canceled: there was not enough liquidity"
             f"{' within the limit' if limit_price is not None else ''} on the eligible book(s)." if parent.unfilled_qty and not parent.resting_qty else ""
         )
-        parent.explanation = " ".join(x for x in (plan.explanation, filled_part + unfilled_part, parent.explanation) if x)
+        notes = []
+        for book in sorted({c.book for c in parent.children if c.filled_qty}):
+            role = self.books[book].config.role
+            if role == "a_book":
+                notes.append(f"On Book {book} (A-book) the broker passed the order straight to outside liquidity providers: it carries no risk and earned the fee.")
+            elif role == "b_book":
+                notes.append(f"On Book {book} (B-book) the broker itself took the other side: it now gains if the fund loses, and vice versa.")
+            else:
+                keep = self.books[book].config.keep_pct
+                notes.append(f"On Book {book} (C-book) the broker kept {keep:.0f}% of the risk and passed {100 - keep:.0f}% to the liquidity providers.")
+        rejected = [c for c in parent.children if c.status == "rejected" and c.reason and "last look" in c.reason.lower()]
+        if rejected:
+            notes.append(f"{sum(c.quantity for c in rejected):,} was rejected by a liquidity provider on last look and was not filled.")
+        parent.explanation = " ".join(x for x in (plan.explanation, filled_part + unfilled_part, parent.explanation, *notes) if x)
         for fn in self.parent_listeners:
             fn(parent)
         return parent
 
+    # ---- the broker's desk -------------------------------------------------------
+    def _lp_venue(self, pair: str) -> Venue | None:
+        lp = next((b for b in self.books.values() if b.config.role == "a_book"), None)
+        return None if lp is None else lp.venues[pair]
+
+    def _desk_trade_lp(self, pair: str, side: Side, qty: int, purpose: str, correlation_id: str | None) -> int:
+        venue = self._lp_venue(pair)
+        if venue is None or qty <= 0:
+            return 0
+        far = PAIRS[pair].pip * 100  # an aggressive limit: take what the LPs show, within 100 pips
+        ref = self.mids[pair]
+        self._desk_purpose = purpose
+        res = venue.submit(owner=DESK, side=side, type=OrderType.LIMIT, quantity=qty, tif=TimeInForce.IOC,
+                           limit_price=round_to_tick(ref + far if side is Side.BUY else ref - far, PAIRS[pair].tick_size),
+                           correlation_id=correlation_id)
+        self._bus.publish(
+            "desk.lp_trade", "fx",
+            f"Desk {purpose}: {side.value} {res.order.filled_qty:,} {PAIRS[pair].base} with the A-book liquidity providers"
+            f"{f' at an average {res.order.avg_fill_price}' if res.order.filled_qty else ''}. Desk position now {self.desk.position(pair):+,}.",
+            entity_id=res.order.id, correlation_id=correlation_id, data={"purpose": purpose, "filled": res.order.filled_qty},
+        )
+        return res.order.filled_qty
+
+    def _settle_desk(self, pair: str, correlation_id: str | None = None) -> None:
+        pending, self._pending = [p for p in self._pending if p[0] == pair], [p for p in self._pending if p[0] != pair]
+        for p, side, qty, purpose in pending:
+            self._desk_trade_lp(p, side, qty, purpose, correlation_id)
+        th = self.desk.config.hedge_threshold
+        if th > 0:
+            if pair == "GBP/USD" and abs(self.desk.gbp_exposure()) > th:
+                self.desk_hedge(pair, reason="automatic: GBP exposure above the threshold", correlation_id=correlation_id)
+            elif pair != "GBP/USD" and abs(self.desk.position(pair)) > th:
+                self.desk_hedge(pair, reason="automatic: exposure above the threshold", correlation_id=correlation_id)
+        self.refresh_all(pair)
+
+    def desk_hedge(self, pair: str, reason: str = "on request", correlation_id: str | None = None) -> dict[str, Any]:
+        """Flatten the desk's exposure: GBP with 6B-style futures, other pairs with LP spot trades."""
+        if pair == "GBP/USD":
+            before = self.desk.gbp_exposure()
+            entry = self.desk.futures_hedge(self.mids[pair])
+            after = self.desk.gbp_exposure()
+            msg = (f"Desk hedge ({reason}): {entry['side'].value} {entry['quantity']} 6B-style GBP futures at {entry['price']}. "
+                   f"GBP exposure {before:+,} → {after:+,} (whole contracts of £62,500 leave a small remainder)."
+                   if entry else f"Desk hedge ({reason}): GBP exposure {before:+,} is already as close to zero as whole contracts allow.")
+        else:
+            before = self.desk.position(pair)
+            self._desk_trade_lp(pair, Side.BUY if before < 0 else Side.SELL, abs(before) - abs(before) % PAIRS[pair].lot_size, "spot hedge", correlation_id)
+            after = self.desk.position(pair)
+            msg = f"Desk hedge ({reason}) on {pair}: position {before:+,} → {after:+,} by trading with the liquidity providers."
+        self._bus.publish("desk.hedged", "fx", msg, entity_id=pair, correlation_id=correlation_id, data={"before": before, "after": after})
+        self.refresh_all(pair)
+        return {"pair": pair, "before": before, "after": after, "message": msg}
+
     def _rest_book(self, plan: RoutingPlan, side: Side) -> str:
+        lp = next((n for n, b in self.books.items() if b.config.role == "a_book"), None)
+        if lp is not None:
+            return lp  # resting interest waits on the liquidity providers' book
         best: dict[str, Decimal] = {}
         for c in plan.candidates:
             best.setdefault(c.book, c.effective_price)
@@ -330,6 +432,16 @@ class FXService:
             sim_latency_ms=cfg.latency_ms, sent_ts=sent, sim_arrival_ts=sent + timedelta(milliseconds=cfg.latency_ms),
         )
         parent.children.append(info)
+        if cfg.role == "a_book" and cfg.last_look_reject_pct > 0 and self.ll_rng.random() * 100 < float(cfg.last_look_reject_pct):
+            info.order_id = self._ids.next("ORD")
+            info.status = "rejected"
+            info.reason = "Rejected on last look: the liquidity provider declined the fill because the price may have moved during the round trip."
+            self._bus.publish(
+                "order.last_look_rejected", "fx",
+                f"Book {book} (A-book): a liquidity provider rejected {qty:,} on last look. Nothing traded for this child order.",
+                entity_id=info.order_id, correlation_id=parent.id, data={"book": book, "quantity": qty, "reject_pct": str(cfg.last_look_reject_pct)},
+            )
+            return
         venue = self.books[book].venues[parent.pair]
         res = venue.submit(
             owner=FUND, side=parent.side, type=OrderType.LIMIT, quantity=qty, limit_price=limit, tif=tif,
@@ -377,6 +489,29 @@ class FXService:
         parent.updated_ts = utc_now()
 
     def _on_fill(self, trade: Trade, taker: Order, maker: Order) -> None:
+        if DESK in (taker.owner, maker.owner):
+            desk_order, other = (taker, maker) if taker.owner == DESK else (maker, taker)
+            pair, book = trade.instrument, trade.venue.split()[-1]
+            if other.owner == FUND:
+                self.desk.client_fill(pair, desk_order.side, trade.quantity, trade.price, self.mids[pair], book)
+                cfg = self.books[book].config
+                share = int(Decimal(trade.quantity) * (Decimal(100) - cfg.keep_pct) / Decimal(100))
+                share -= share % PAIRS[pair].lot_size
+                if share > 0:  # C-book: pass the agreed share straight to the liquidity providers
+                    self._pending.append((pair, other.side, share, "pass-through"))
+                pos = self.desk.position(pair)
+                self._bus.publish(
+                    "desk.took_risk", "fx",
+                    f"Book {book}: the broker's desk {'sold' if desk_order.side is Side.SELL else 'bought'} {trade.quantity:,} {PAIRS[pair].base} "
+                    f"to/from the fund at {trade.price}. Desk position is now {pos:+,} {PAIRS[pair].base}: it "
+                    f"{'profits if ' + PAIRS[pair].base + ' falls' if pos < 0 else 'profits if ' + PAIRS[pair].base + ' rises' if pos > 0 else 'is flat'}.",
+                    entity_id=trade.id, correlation_id=trade.correlation_id, data={"book": book, "desk_position": pos},
+                )
+            elif other.owner == LP:
+                fee = trade.taker_fee if desk_order is taker else trade.maker_fee
+                self.desk.lp_fill(pair, desk_order.side, trade.quantity, trade.price, fee, self._desk_purpose)
+                return  # desk ↔ LP trades do not involve the fund
+            # desk ↔ fund: fall through so the fund's side reaches its portfolio too
         fund_order = taker if taker.owner == FUND else maker if maker.owner == FUND else None
         if fund_order is None:
             return
@@ -431,6 +566,9 @@ class FXService:
         return {
             "name": name,
             "config": b.config,
+            "role": b.config.role,
+            "role_info": ROLE_INFO[b.config.role],
+            "label": b.config.label,
             "pair": pair,
             **d,
             "bid_depth": bid_depth,
@@ -454,6 +592,7 @@ class FXService:
             "books": [self.book_snapshot(n, pair) for n in self.books],
             "parents": [p for p in reversed(self.parents.values()) if p.pair == pair][:20],
             "rate_series": self.rate_series[pair][-300:],
+            "desk": self.desk.snapshot(self.mids),
             "scenario": None if self.scenario is None else {**self.scenario, "next_step": self.scenario_step,
                                                              "complete": self.scenario_step >= len(self.scenario["steps"])},
             "notice": "All rates and book configurations are synthetic and hypothetical, not live market data.",
@@ -464,8 +603,11 @@ class FXService:
         self._pause_sim()
         self.restore_defaults(rng)
         for name, overrides in scenario.get("books", {}).items():
-            self.books[name].set_config(self.books[name].config.model_copy(update=overrides))
-        self.mids["GBP/USD"] = Decimal("1.27000")
+            self.books[name].set_config(BookConfig(**(self.books[name].config.model_dump() | overrides)))
+        if scenario.get("desk"):
+            self.desk.config = DeskConfig(**(self.desk.config.model_dump() | scenario["desk"]))
+        self.ll_rng = random.Random(1)
+        self.mids["GBP/USD"] = Decimal("1.33000")
         self.rate_series["GBP/USD"] = []
         self._record_rate("GBP/USD")
         self.refresh_all()
@@ -493,6 +635,8 @@ class FXService:
             out["parent"] = parent
         elif a["type"] == "shift_mid":
             self.set_mid("GBP/USD", self.mids["GBP/USD"] + Decimal(a["pips"]) * PAIRS["GBP/USD"].pip, "scenario step")
+        elif a["type"] == "desk_hedge":
+            out["hedge"] = self.desk_hedge("GBP/USD", reason="scenario step")
         self.scenario_step += 1
         self._bus.publish("scenario.step", "fx", f"Scenario step {self.scenario_step}: {step['title']}. {step['observe']}",
                           entity_id=self.scenario["id"])

@@ -62,6 +62,26 @@ frontend typecheck clean and **30 passed**, manifests **21 passed**; `scripts/bu
 Published as 0.2.0 (see "Published images"). Not re-tested on a Kubernetes cluster after these changes (no manifest
 changes were needed beyond the new image pins).
 
+## FX books as A-book / B-book / C-book, GBP/USD at 1.33 (version 0.3.0, 2026-10-26)
+
+Books A, B and C now follow standard FX brokerage practice:
+- **A-book**: client orders pass straight to outside liquidity providers, with optional last-look rejection.
+- **B-book**: the broker's desk takes the other side, so its position mirrors the client's. It hedges GBP exposure
+  with 6B-style British pound futures (£62,500 per contract), automatically above a threshold or on request.
+- **C-book**: the desk keeps a set share (50% by default) and passes the rest to the A-book LPs.
+
+The smart router, explanations, eight scenarios (A-book, B-book client wrong, B-book client right plus futures hedge,
+C-book, last look, three-way split, resting limit order, partial fill), glossary, routing lesson and finance guide
+were updated to match. A new **Broker's desk** panel shows the desk's position, futures, exposure and P&L.
+GBP/USD now starts at 1.33000 (the fee and USD sensitivities scale accordingly; pip-based examples are unchanged).
+
+Bugs found while doing this: the fund's fills against the broker's desk were not reaching its portfolio (fixed), and the
+order-detail endpoint counted the desk's own follow-up trades as the fund's fills (now reported separately as `desk_trades`).
+
+Verified: backend **107 passed**, frontend **31 passed**, manifests **21 passed**; images built and run locally,
+`verify.sh` **18 passed, 1 skipped**; FX page screenshot checked. **Not yet published**: quay still holds 0.2.0 (the
+previous book model), so `scripts/install.sh` deploys 0.2.0 until `scripts/release-images.sh` publishes 0.3.0.
+
 ## Bugs found and fixed during verification
 
 - `install.sh`: image overrides did not match after overlay renaming; untagged `host:port/…` references were

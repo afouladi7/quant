@@ -32,23 +32,28 @@ export const presets = [
 
 export const fxState = (over: Record<string, unknown> = {}) => {
   const book = (name: string, ask: string, desc: string) => ({
-    name, config: { name, description: desc, spread_pips: "0.6", price_offset_pips: "0", levels: 3, level_step_pips: "0.5", qty_per_level: 200000, fee_bps: "0.25", latency_ms: name === "C" ? 45 : 2 },
-    pair: "GBP/USD", best_bid: "1.26997", best_ask: ask, spread: "0.00006", bids: [], asks: [{ price: ask, quantity: 200000, orders: 1, by_owner: { lp: 200000 }, order_ids: [] }],
+    name, role: ({ A: "a_book", B: "b_book", C: "c_book" } as const)[name as "A" | "B" | "C"], label: `Book ${name}: ${desc}`,
+    role_info: { title: desc, who: `${desc} takes the other side.`, how: "explained" },
+    config: { name, role: ({ A: "a_book", B: "b_book", C: "c_book" } as const)[name as "A" | "B" | "C"], description: desc, spread_pips: "0.6", price_offset_pips: "0", levels: 3, level_step_pips: "0.5", qty_per_level: 200000, fee_bps: "0.25", latency_ms: name === "C" ? 45 : 2, last_look_reject_pct: "0", max_client_order: 3000000, keep_pct: name === "C" ? "50" : "100" },
+    pair: "GBP/USD", best_bid: "1.32997", best_ask: ask, spread: "0.00006", bids: [], asks: [{ price: ask, quantity: 200000, orders: 1, by_owner: { lp: 200000 }, order_ids: [] }],
     bid_depth: 600000, ask_depth: 600000, fill_rate: null, fund_requested_qty: 0, fund_filled_qty: 0, recent_trades: [], resting_fund_orders: [], latency_ms: name === "C" ? 45 : 2,
   });
   return {
-    pair: { symbol: "GBP/USD", base: "GBP", quote: "USD", pip: "0.0001", tick_size: "0.00001", initial_mid: "1.27000", lot_size: 1000 },
-    pairs: ["GBP/USD", "EUR/USD", "USD/JPY"], mid: "1.27000", mids: {}, weights: { include_fees: true, latency_penalty_bps_per_100ms: "0.1" },
-    books: [book("A", "1.27003", "Tight spread, thin depth"), book("B", "1.27005", "Deep liquidity"), book("C", "1.27004", "Competitive, slow")],
-    parents: [], rate_series: [{ tick: 0, mid: "1.27000" }], scenario: null, notice: "All rates are synthetic.", ...over,
+    pair: { symbol: "GBP/USD", base: "GBP", quote: "USD", pip: "0.0001", tick_size: "0.00001", initial_mid: "1.33000", lot_size: 1000 },
+    pairs: ["GBP/USD", "EUR/USD", "USD/JPY"], mid: "1.33000", mids: {}, weights: { include_fees: true, latency_penalty_bps_per_100ms: "0.1" },
+    books: [book("A", "1.33003", "A-book (straight through)"), book("B", "1.33005", "B-book (in-house)"), book("C", "1.33004", "C-book (hybrid)")],
+    parents: [], rate_series: [{ tick: 0, mid: "1.33000" }], scenario: null, notice: "All rates are synthetic.",
+    desk: { config: { hedge_threshold: 2000000, max_position: 20000000 }, pairs: [], gbp_exposure: 0, total_pnl_usd: "0.00",
+      futures: { spec: { symbol: "6B-style GBP future (illustrative)", contract_size: 62500, label: "" }, contracts: 0, gbp_equivalent: 0, price: "1.3310", unrealized_usd: "0.00", realized_usd: "0.00", fees_usd: "0.00" }, log: [] },
+    ...over,
   };
 };
 
 export const parent = {
   id: "PAR-000001-bbbb", pair: "GBP/USD", side: "buy", type: "market", quantity: 1000000, limit_price: null, routing_mode: "smart", purpose: "trade",
-  hedge_id: null, status: "filled", filled_qty: 1000000, notional: "1270041", vwap: "1.2700410", total_fees: "23.50", unfilled_qty: 0, resting_qty: 0,
-  children: ["A", "B", "C"].map((b, i) => ({ order_id: `ORD-00010${i}-cccc`, book: b, quantity: [200000, 300000, 500000][i], limit_price: "1.27005", tif: "ioc",
-    status: "filled", filled_qty: [200000, 300000, 500000][i], avg_price: "1.27004", fees: "5.00", sim_latency_ms: 2, sent_ts: "2026-10-25T12:00:00.000Z", sim_arrival_ts: "2026-10-25T12:00:00.002Z", reason: null })),
-  plan: { mode: "smart", side: "buy", quantity: 1000000, limit_price: null, include_fees: true, latency_penalty_bps_per_100ms: "0.1", planned_qty: 1000000, expected_vwap: "1.2700410", unfilled_qty: 0, explanation: "split", allocations: [], candidates: [] },
+  hedge_id: null, status: "filled", filled_qty: 1000000, notional: "1270041", vwap: "1.3300410", total_fees: "23.50", unfilled_qty: 0, resting_qty: 0,
+  children: ["A", "B", "C"].map((b, i) => ({ order_id: `ORD-00010${i}-cccc`, book: b, quantity: [200000, 300000, 500000][i], limit_price: "1.33005", tif: "ioc",
+    status: "filled", filled_qty: [200000, 300000, 500000][i], avg_price: "1.33004", fees: "5.00", sim_latency_ms: 2, sent_ts: "2026-10-25T12:00:00.000Z", sim_arrival_ts: "2026-10-25T12:00:00.002Z", reason: null })),
+  plan: { mode: "smart", side: "buy", quantity: 1000000, limit_price: null, include_fees: true, latency_penalty_bps_per_100ms: "0.1", planned_qty: 1000000, expected_vwap: "1.3300410", unfilled_qty: 0, explanation: "split", allocations: [], candidates: [] },
   explanation: "To buy 1,000,000, the router sent 200,000 to Book A, 300,000 to Book B, 500,000 to Book C.", created_ts: "2026-10-25T12:00:00Z",
 };
