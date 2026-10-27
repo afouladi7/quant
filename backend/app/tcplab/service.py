@@ -57,9 +57,9 @@ class Suite(BaseModel):
 SUITE_STANDARD: list[dict[str, Any]] = [
     {"mode": "complete", "connection": "cold", "label": "A · complete message, cold connection"},
     {"mode": "complete", "connection": "reused", "label": "C · complete message, pre-established connection"},
-    {"mode": "split", "connection": "reused", "split_delay_ms": 0, "label": "B · split 499+1, no delay"},
-    {"mode": "split", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "B · split 499+1, 20 ms delay, prep after"},
-    {"mode": "early_work", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "D · split + useful early work (prep 10 ms)"},
+    {"mode": "split", "connection": "reused", "split_delay_ms": 0, "label": "B · front-loaded 499+1, decide at once"},
+    {"mode": "split", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "B · front-loaded, server prepares after last byte"},
+    {"mode": "early_work", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "D · front-loaded, server prepares early (HFT setup)"},
     {"mode": "race", "connection": "reused", "split_delay_ms": 5, "prep_ms": 0, "label": "Race · pre-sent 499 vs full 500, no server prep"},
     {"mode": "race", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "Race · pre-sent 499 vs full 500, 10 ms server prep"},
     {"mode": "abort", "connection": "cold", "split_delay_ms": 2, "label": "Abort · send 499 ahead, then decide not to trade"},
@@ -315,7 +315,7 @@ class TCPLabService:
                 f"Same signal, two clients: the pre-sent order was accepted first in {r['pre_sent_wins']} of {r['trials']} trials"
                 + (f", by a median of {m:.3f} ms." if m is not None else ".")
                 + (" With server preparation, the pre-sent order's checks ran before the signal; the full payload's could only start after it arrived."
-                   if cfg.prep_ms else " With no server preparation, the only difference is sending 1 byte instead of 500 over loopback, so the margin is tiny and noisy.")
+                   if cfg.prep_ms else " With no server preparation, the only difference left is 1 byte vs 500 on the wire; over loopback that is microseconds, so the margin is tiny and noisy. On a real network it is wire time and packets the full order pays and the pre-sent one doesn't.")
             )
             bo = r["by_scheduling_order"]
             pf, ff = bo["pre_scheduled_first"], bo["full_scheduled_first"]
@@ -324,8 +324,8 @@ class TCPLabService:
                 notes.append(
                     "The winner simply followed which client this process happened to run first after the signal "
                     f"(pre-sent won {pf['pre_sent_wins']}/{pf['trials']} when it went first, {ff['pre_sent_wins']}/{ff['trials']} when it went second). "
-                    "On loopback, sending 499 fewer bytes takes microseconds, less than scheduling noise. On a real network the extra bytes cost "
-                    "wire time and packets, and server-side pre-processing (try 10 ms of prep) is where front-loading wins decisively."
+                    "Loopback hides the wire-time edge: 499 fewer bytes take microseconds here, less than scheduling noise. On a real network the "
+                    "full order pays that wire time after the decision; add server preparation (try 10 ms) to see the pre-sent order win every race."
                 )
             else:
                 notes.append("Which client the event loop wakes first alternates by a seeded coin flip; win rates for each order are reported to expose any bias.")

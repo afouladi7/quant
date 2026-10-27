@@ -1,6 +1,6 @@
 [project]
 name = "marketlab-backend"
-version = "0.4.0"
+version = "0.4.1"
 description = "MarketLab educational market simulation backend"
 requires-python = ">=3.12"
 

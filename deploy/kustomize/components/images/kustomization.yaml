@@ -6,7 +6,7 @@ kind: Component
 images:
   - name: marketlab-backend
     newName: quay.io/allenfouladi/quant
-    digest: sha256:99ea2f0646fe1e06e9353e06fe63f4166621e11b69bcd3fb0d175a37f4800d66  # backend-0.4.0
+    digest: sha256:b804420c060d0de0b3649934b062b222f22287202942684b094f08e9adf8abfd  # backend-0.4.1
   - name: marketlab-frontend
     newName: quay.io/allenfouladi/quant
-    digest: sha256:8b080c5904b982cabf2b744a79743e423dfc76b31c93679919c85096ced23db2  # frontend-0.4.0
+    digest: sha256:8eef1fb2ae6253c9d52a212efe0180a03dbdbd605b973c95503196d0663a9f30  # frontend-0.4.1

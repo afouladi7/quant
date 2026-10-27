@@ -81,13 +81,14 @@ export function TCPLab() {
         <div>
           <h1>TCP Performance Lab</h1>
           <p className="lead">
-            Real requests against MarketLab's own backend, measured with a high-resolution monotonic clock. Compare sending a
-            500-byte message at once with sending 499 bytes and then the final byte, and see what a pre-established connection saves.
+            How high-frequency traders shave time off an order: keep the connection open, send everything except the last byte
+            ahead of time, and let the server prepare the order while it waits. When the signal comes, only one byte has to travel.
+            Real requests against MarketLab's own backend, measured with a high-resolution clock; race a pre-sent order against a full one.
           </p>
         </div>
       </header>
       <StartHere steps={[
-        <>Read <b>What is being measured</b> (four short ideas).</>,
+        <>Read <b>What is being measured</b> (five short ideas).</>,
         <>Press <b>Run comparison</b> and wait about 10 seconds.</>,
         <>Read <b>What this run measured</b> under the chart, then compare the medians in <b>Statistics</b>.</>,
       ]} />
@@ -111,9 +112,10 @@ function Concepts() {
         simple={
           <div className="concepts">
             <p><b>TCP is a stream of bytes, not of messages.</b> The receiver cannot act on a 500-byte order until all 500 bytes have arrived, however they were sent.</p>
-            <p><b>Front-loading: send everything except the last byte ahead of time.</b> Traders open the connection and send the first 499 bytes of an order (for example most of an HTTP request) <i>before</i> they know whether they will trade. The incomplete message sits at the server. When the decision comes, only the final byte has to travel. If they decide not to trade, they drop it (close the connection) and the server discards it.</p>
+            <p><b>Front-loading: send everything except the last byte ahead of time.</b> This is a standard high-frequency trading technique. Traders open the connection and send the first 499 bytes of an order (for example most of an HTTP request) <i>before</i> they know whether they will trade. The incomplete message sits at the server. When the decision comes, only the final byte has to travel. If they decide not to trade, they drop it (close the connection) and the server discards it.</p>
             <p><b>Measure from the decision, not from the first byte.</b> What matters is <i>decision → response</i>. Time spent waiting before the decision doesn't count, because the trader hadn't decided yet.</p>
-            <p><b>The big win is server-side work done early.</b> If the server parses and checks the first 499 bytes while waiting, only a tiny amount of work remains after the last byte arrives.</p>
+            <p><b>Why it gives an edge.</b> After the decision, a front-loaded order puts 1 byte on the wire instead of 500: one tiny packet, less time serialising bytes at every network hop, nothing to fragment. And the receiver has already parsed the headers, validated the order and run its checks on the first 499 bytes, so almost no work is left once the last byte lands. A competitor sending the full order on the same signal pays for all of that after the decision.</p>
+            <p><b>What this lab can and can't show.</b> Everything here runs over loopback inside one machine, where moving 499 extra bytes takes microseconds, so the wire-time part of the edge is too small to see. The server-preparation part is fully visible: set <i>Server preparation</i> and watch the pre-sent order win the race by about that much.</p>
             <p><b>Opening a connection costs time.</b> A connection set up in advance removes the handshake from the critical path.</p>
           </div>
         }
@@ -137,9 +139,9 @@ function Suite({ busy, onStarted }: { busy: boolean; onStarted: (ids: string[]) 
       <ol className="small suite-list">
         <li><b>A</b> complete message, cold connection (connect measured)</li>
         <li><b>C</b> complete message, pre-established connection</li>
-        <li><b>B</b> split 499 + 1 bytes, no delay</li>
-        <li><b>B</b> split with a 20 ms pause; 10 ms preparation done after the last byte</li>
-        <li><b>D</b> split with a 20 ms pause; the same 10 ms preparation done while waiting</li>
+        <li><b>B</b> front-loaded 499 + 1 bytes, decision immediately</li>
+        <li><b>B</b> front-loaded, decision 20 ms later; server only prepares (10 ms) after the last byte</li>
+        <li><b>D</b> front-loaded, decision 20 ms later; server prepares while waiting (the HFT setup)</li>
         <li><b>Race</b> pre-sent 499 bytes vs. full 500-byte payload on the same signal, no server prep</li>
         <li><b>Race</b> the same, with 10 ms of server preparation</li>
         <li><b>Abort</b> send 499 bytes ahead, then decide not to trade</li>
@@ -170,11 +172,11 @@ function Controls({ busy, onStarted }: { busy: boolean; onStarted: (ids: string[
     void run(async () => { const r = await http.post<Run>("/tcp/benchmarks", cfg); onStarted([r.id]); });
   };
   return (
-    <Panel title="Custom benchmark" id="tcp-custom" help={<><p>Design your own experiment. A <b>cold</b> connection performs the TCP <Term id="handshake">handshake</Term> every time; <b>reused</b> connects once. <b>Split</b> sends all but the last byte, waits, then sends the last byte. TCP_NODELAY turns off <Term id="nagle">Nagle's algorithm</Term>.</p></>} actions={busy ? <button type="button" className="btn" onClick={() => void http.post("/tcp/cancel")}>Cancel run</button> : null}>
+    <Panel title="Custom benchmark" id="tcp-custom" help={<><p>Design your own experiment. A <b>cold</b> connection performs the TCP <Term id="handshake">handshake</Term> every time; <b>reused</b> connects once. <b>Front-loaded</b> sends all but the last byte, waits for the decision, then sends the last byte. TCP_NODELAY turns off <Term id="nagle">Nagle's algorithm</Term>.</p></>} actions={busy ? <button type="button" className="btn" onClick={() => void http.post("/tcp/cancel")}>Cancel run</button> : null}>
       <form onSubmit={submit}>
         <div className="form-row">
           <label>Transport<select value={cfg.transport} onChange={(e) => set("transport", e.target.value as Cfg["transport"])}><option value="raw_tcp">Raw TCP</option><option value="http">HTTP POST</option></select></label>
-          <label>Mode<select value={cfg.mode} onChange={(e) => set("mode", e.target.value as Cfg["mode"])}><option value="complete">Complete message (one write)</option><option value="split">Split: N−1 bytes, then last byte</option><option value="early_work">Split + useful early work</option><option value="abort">Send ahead, then abort (don't trade)</option><option value="race">Race: pre-sent vs full payload</option></select></label>
+          <label>Mode<select value={cfg.mode} onChange={(e) => set("mode", e.target.value as Cfg["mode"])}><option value="complete">Complete message (one write)</option><option value="split">Front-loaded: N−1 bytes ahead, last byte on decision</option><option value="early_work">Front-loaded + server prepares early</option><option value="abort">Send ahead, then abort (don't trade)</option><option value="race">Race: pre-sent vs full payload</option></select></label>
           <label>Connection<select value={cfg.connection} onChange={(e) => set("connection", e.target.value as Cfg["connection"])}><option value="cold">Cold (connect each trial)</option><option value="reused">Pre-established / reused</option></select></label>
         </div>
         <div className="form-grid tight">
@@ -284,7 +286,7 @@ function Interpretation({ shown }: { shown: Run[] }) {
   const lines: string[] = [];
   if (cold && warm) lines.push(`Pre-established connection vs. cold: ${fmtMs(dm(warm))} vs ${fmtMs(dm(cold))} from the decision (${dm(cold) >= dm(warm) ? "saves" : "costs"} ${fmtMs(Math.abs(dm(cold) - dm(warm)))}).`);
   if (early) lines.push(`Front-loaded with the server preparing early: ${fmtMs(dm(early))} from the decision to the response, even though the whole exchange took ${fmtMs(early.summary.median)} from the first byte.`);
-  if (early && splitAfter) lines.push(`If the server only starts its ${early.config.prep_ms} ms of preparation after the last byte, decision → response is ${fmtMs(dm(splitAfter))}: front-loading the bytes alone doesn't help much; pre-processing them does.`);
+  if (early && splitAfter) lines.push(`If the server only starts its ${early.config.prep_ms} ms of preparation after the last byte, decision → response is ${fmtMs(dm(splitAfter))}. The edge comes from the receiver using the pre-sent bytes early; on loopback the wire-time saving is too small to see.`);
   if (!lines.length) return null;
   return <div className="observe"><strong>What this run measured:</strong><ul>{lines.map((l) => <li key={l}>{l}</li>)}</ul></div>;
 }

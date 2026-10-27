@@ -14,7 +14,7 @@ from functools import lru_cache
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 
 class PersistenceMode(str, Enum):

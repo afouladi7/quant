@@ -112,6 +112,13 @@ Live state in memory with a single backend replica; simplified market and future
 the TCP lab cannot observe TCP segments; HTTP server timestamps are application-level. See the README and the
 operations guide.
 
+## TCP lab wording: front-loading as the HFT edge (version 0.4.1, 2026-10-27)
+
+Text-only release: the TCP lab, module card, run notes, lesson, networking guide and README present front-loading as the
+standard HFT technique it is (1 byte on the wire after the decision; receiver pre-parses the rest) and say plainly that
+loopback hides the wire-time part. Published with `scripts/release-images.sh`, pulled back by digest: version 0.4.1,
+`verify.sh` 18 passed / 1 skipped.
+
 ## TCP lab front-loading: decision timing, race and abort (version 0.4.0, 2026-10-27)
 
 Latency is measured from the trading decision (just before the final byte of a pre-sent order). New race mode
@@ -126,8 +133,10 @@ Public repository `quay.io/allenfouladi/quant` (anonymous pull verified, digests
 
 | Image | Tag | Digest | |
 |---|---|---|---|
-| backend | `backend-0.4.0` | `sha256:99ea2f0646fe1e06e9353e06fe63f4166621e11b69bcd3fb0d175a37f4800d66` | **current** (pinned) |
-| frontend | `frontend-0.4.0` | `sha256:8b080c5904b982cabf2b744a79743e423dfc76b31c93679919c85096ced23db2` | **current** (pinned) |
+| backend | `backend-0.4.1` | `sha256:b804420c060d0de0b3649934b062b222f22287202942684b094f08e9adf8abfd` | **current** (pinned) |
+| frontend | `frontend-0.4.1` | `sha256:8eef1fb2ae6253c9d52a212efe0180a03dbdbd605b973c95503196d0663a9f30` | **current** (pinned) |
+| backend | `backend-0.4.0` | `sha256:99ea2f0646fe1e06e9353e06fe63f4166621e11b69bcd3fb0d175a37f4800d66` | previous |
+| frontend | `frontend-0.4.0` | `sha256:8b080c5904b982cabf2b744a79743e423dfc76b31c93679919c85096ced23db2` | previous |
 | backend | `backend-0.3.0` | `sha256:d4b23695445c556e7c505d2c699a677c5c29a210c779f6d443d92a9aad997717` | previous |
 | frontend | `frontend-0.3.0` | `sha256:b7e0c50b0cd868a2a182696abf764c5b566f3175dc7be3694b2697f784a749a8` | previous |
 | backend | `backend-0.2.0` | `sha256:34f71f7d245c884a9f37e2134056976c97ef8897308c37558b2cfbb1422f7146` | previous |
@@ -142,7 +151,7 @@ UID 54321 with a read-only root: `/api/v1/info` reports 0.2.0, the new endpoints
 
 1. On the home OpenShift cluster:
    ```bash
-   scripts/install.sh   # deploys the pinned 0.4.0 images; add --with-postgres to keep history
+   scripts/install.sh   # deploys the pinned 0.4.1 images; add --with-postgres to keep history
    scripts/verify.sh -n marketlab -k
    ```
    Record the result here.

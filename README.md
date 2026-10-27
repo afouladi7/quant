@@ -15,7 +15,7 @@ definition, and press **?** on any panel to learn what it shows.
 | **FX routing & hedging** | Intermediate | Trade currencies through a broker's **A-book** (passed to outside liquidity providers, with last look), **B-book** (the broker takes the other side and hedges with 6B-style British pound futures) or **C-book** (hybrid), or let the smart router split the order; eight reproducible scenarios; then hedge the fund's own GBP exposure and compare risk scenarios. |
 | **Risk & returns lab** | Intermediate | Simulate prices and measure returns, volatility, drawdown, Sharpe ratio, historical vs. bell-curve VaR, fat tails, and diversification between two assets. |
 | **Options lab** | Advanced | Black-Scholes prices, the Greeks in plain English, payoff and time-decay charts, implied volatility, put-call parity and binomial-tree convergence. |
-| **TCP latency lab** | Advanced | Real benchmarks against the backend itself: complete vs. split messages, cold vs. reused connections, useful early work, percentiles, CSV export. |
+| **TCP latency lab** | Advanced | Real benchmarks against the backend itself: front-loaded orders (499 bytes early, last byte on the decision) racing full orders on the same signal, abort handling, cold vs. reused connections, percentiles, CSV export. |
 | **How it works** | All | Follow a click through the system, watch the browser's real API calls live, explore every endpoint, and jump to the source code. |
 
 Every view has a **Simple** (plain English) and a **Technical** (IDs, formulas, raw events, routing

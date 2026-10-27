@@ -59,28 +59,33 @@ writes into one chunk.
 
 ## 3. Front-loading: pre-sending all but the last byte
 
-Traders often open a connection and send most of an order (for example an HTTP
+Front-loading is a standard high-frequency trading technique. Traders open a connection and send most of an order (for example an HTTP
 request missing its final byte) **before** they know whether they will trade.
 If they decide to trade, only the last byte has to travel. If they decide not
 to, they close the connection and the server discards the incomplete message.
 
-Measured from the first byte, a split message can never be faster than a
-complete one: the server still needs every byte. But that is the wrong clock.
-The 499 bytes were sent while the trader was still deciding, so the relevant
-latency is **decision → response**:
+The clock that matters is **decision → response**. The 499 bytes were sent
+while the trader was still deciding, so they cost nothing. After the decision a
+front-loaded order is ahead in two ways:
 
-- If the server waits for the full message before doing any work, front-loading
-  saves only the transfer of 499 bytes, which is tiny on a fast link.
-- If the server parses and validates the first 499 bytes while waiting
-  (experiment D), almost nothing is left to do when the last byte arrives.
-  Decision → response then drops by about the preparation time.
+- **On the wire:** 1 byte instead of 500. One minimal packet, less
+  serialisation time at every hop, nothing to fragment. On a real network this
+  is a direct, repeatable saving over a competitor sending the full order.
+- **At the receiver:** the headers and order fields were already parsed and
+  validated while waiting (experiment D), so almost nothing is left to do when
+  the last byte arrives. Decision → response drops by about the preparation time.
+
+This lab runs over loopback on one machine, where moving 499 extra bytes takes
+microseconds, so the wire-time part is too small to measure here. The
+receiver-side part is fully visible.
 
 **Race.** When two clients act on the same signal, the pre-sent order is
 accepted first whenever the server did real preparation work in advance, by a
-margin close to that work. With no server-side preparation the two are within
-a few microseconds on loopback, and the winner simply follows which client the
-process happened to run first; the lab reports wins for each scheduling order
-so this is visible rather than hidden.
+margin close to that work. With no server-side preparation, the only
+difference left is wire time, which loopback reduces to microseconds, so the
+winner follows which client the process happened to run first. The lab reports
+wins for each scheduling order so this is visible rather than hidden. On a real
+network that wire-time difference is exactly the edge traders are buying.
 
 **Abort.** An incomplete message is never acted on. The servers count messages
 discarded because the connection closed before the final byte, and the lab
@@ -156,10 +161,10 @@ Measured on 2026-10-27 on loopback, Fedora 44 workstation, TCP_NODELAY on,
 |---|---|
 | Raw TCP and HTTP | 20/20 incomplete orders discarded, 0 acted on |
 
-What these runs showed: front-loading on its own saves little on a fast local
-link; front-loading plus server-side preparation cuts decision → response from
-about 11 ms to under 1 ms and wins every race on the same signal. On a real
-network the transfer saving grows with message size and link speed.
+What these runs showed: front-loading with server-side preparation cut
+decision → response from about 11 ms to under 1 ms and won every race on the
+same signal. Without preparation, loopback hides the wire-time saving; on a
+real network that saving is added on top.
 
 ## 9. Safety boundaries
 

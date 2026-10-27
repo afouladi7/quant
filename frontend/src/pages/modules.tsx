@@ -44,11 +44,11 @@ export const MODULES: ModuleInfo[] = [
     key: "tcp",
     path: "/tcp-lab",
     title: "TCP Performance Lab",
-    summary: "Measure how connection setup, persistent connections and splitting a message into 499 + 1 bytes affect real latency.",
+    summary: "See how traders front-load orders (send 499 bytes early, the last byte on the decision) and race a pre-sent order against a full one.",
     icon: svg("M4 12h4l3-7 4 14 3-7h2"),
     highlights: [
       "Real benchmark requests against MarketLab's own backend",
-      "Cold vs. persistent connections, complete vs. split messages",
+      "Front-loaded vs. full orders racing on the same signal; cold vs. open connections",
       "Latency distributions, percentiles and CSV export",
     ],
   },

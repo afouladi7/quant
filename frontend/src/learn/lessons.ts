@@ -302,9 +302,10 @@ export const LESSONS: Lesson[] = [
     body: [
       "TCP guarantees bytes arrive in order, but has no idea where one message ends. The application must frame messages (here, a length header).",
       "Opening a connection costs a round trip before any data flows. Reusing a connection avoids that cost.",
-      "Front-loading: send the first 499 bytes of an order before you know whether you'll trade. If you decide to trade, send the last byte; if not, close the connection and the server throws the incomplete message away.",
+      "Front-loading is a standard high-frequency trading technique: send the first 499 bytes of an order before you know whether you'll trade. If you decide to trade, send the last byte; if not, close the connection and the server throws the incomplete message away.",
       "What counts is decision → response. Time the 499 bytes spent waiting at the server happened before the decision, so it costs the trader nothing.",
-      "The biggest gain comes when the server parses and checks the first 499 bytes while waiting, so almost no work is left once the last byte lands. In a race on the same signal, the pre-sent order wins by roughly that preparation time.",
+      "The edge has two parts. On the wire, only 1 byte travels after the decision instead of 500. At the receiver, the first 499 bytes were already parsed and checked, so almost no work is left once the last byte lands. In a race on the same signal, the pre-sent order wins.",
+      "This lab runs on one machine (loopback), where the wire-time part is microseconds and hard to see; the server-preparation part shows clearly in the race.",
       "Latency must be measured as a distribution: look at the median and the tail (p95, p99), not one number.",
     ],
     keyIdeas: ["Byte stream → framing needed", "Reuse connections", "Front-load, prepare early", "Measure from the decision", "Report percentiles"],
