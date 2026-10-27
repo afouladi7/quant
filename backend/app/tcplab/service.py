@@ -6,6 +6,7 @@ import asyncio
 import csv
 import io
 import logging
+import random
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any
@@ -15,13 +16,13 @@ from pydantic import BaseModel, Field
 from app.core.clock import utc_now
 from app.core.ids import IdGenerator
 from app.events.bus import EventBus
-from app.tcplab.client import BenchmarkConfig, Conn, connect, run_trial
+from app.tcplab.client import BenchmarkConfig, Conn, connect, run_abort_trial, run_race_trial, run_trial
 from app.tcplab.stats import summarize
 
 log = logging.getLogger(__name__)
 MAX_RUNS = 30
-METRICS = ["connect_ms", "first_write_ms", "server_first_rx_ms", "server_complete_ms", "prep_ms", "wait_final_byte_ms",
-           "server_processing_ms", "ttfb_ms", "response_spread_ms", "total_ms"]
+METRICS = ["connect_ms", "first_write_ms", "decision_ms", "server_first_rx_ms", "server_complete_ms", "prep_ms", "wait_final_byte_ms",
+           "server_processing_ms", "ttfb_ms", "response_spread_ms", "decision_to_accept_ms", "decision_to_response_ms", "total_ms"]
 
 
 class BenchmarkRun(BaseModel):
@@ -38,6 +39,9 @@ class BenchmarkRun(BaseModel):
     environment: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
     error: str | None = None
+    decision_summary: dict[str, Any] = Field(default_factory=dict)  # decision -> response, the latency that matters for trading
+    race: dict[str, Any] | None = None
+    abort: dict[str, Any] | None = None
 
 
 class Suite(BaseModel):
@@ -56,6 +60,9 @@ SUITE_STANDARD: list[dict[str, Any]] = [
     {"mode": "split", "connection": "reused", "split_delay_ms": 0, "label": "B · split 499+1, no delay"},
     {"mode": "split", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "B · split 499+1, 20 ms delay, prep after"},
     {"mode": "early_work", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "D · split + useful early work (prep 10 ms)"},
+    {"mode": "race", "connection": "reused", "split_delay_ms": 5, "prep_ms": 0, "label": "Race · pre-sent 499 vs full 500, no server prep"},
+    {"mode": "race", "connection": "reused", "split_delay_ms": 20, "prep_ms": 10, "label": "Race · pre-sent 499 vs full 500, 10 ms server prep"},
+    {"mode": "abort", "connection": "cold", "split_delay_ms": 2, "label": "Abort · send 499 ahead, then decide not to trade"},
 ]
 
 
@@ -70,6 +77,7 @@ class TCPLabService:
         self.suites: OrderedDict[str, Suite] = OrderedDict()
         self._task: asyncio.Task | None = None
         self.on_finished = lambda run: None  # persistence hook
+        self.counters = lambda: {}  # server-side message counters (set by the app container)
 
     @property
     def busy(self) -> bool:
@@ -164,8 +172,47 @@ class TCPLabService:
                 if conn is not None:
                     await conn.close()
 
+        async def race_loop() -> None:
+            rng = random.Random(12345)  # seeded: which side the event loop wakes first alternates reproducibly
+            pre = full = None
+            try:
+                for seq in range(total):
+                    if pre is None or full is None:
+                        pre = await connect(self.host, port, cfg.tcp_nodelay)
+                        full = await connect(self.host, port, cfg.tcp_nodelay)
+                    try:
+                        res = await asyncio.wait_for(run_race_trial(cfg, seq, pre, full, rng.random() < 0.5), cfg.timeout_ms / 1000)
+                    except (TimeoutError, Exception) as exc:  # noqa: BLE001
+                        res = {"seq": seq, "ok": False, "error": "timeout" if isinstance(exc, TimeoutError) else f"{type(exc).__name__}: {exc}",
+                               "timeout": isinstance(exc, TimeoutError)}
+                        for c in (pre, full):
+                            await c.close()
+                        pre = full = None
+                    res["warmup"] = seq < cfg.warmup
+                    results.append(res)
+            finally:
+                for c in (pre, full):
+                    if c is not None:
+                        await c.close()
+
+        async def abort_loop() -> None:
+            for seq in range(total):
+                try:
+                    res = await asyncio.wait_for(run_abort_trial(cfg, seq, self.host, port), cfg.timeout_ms / 1000)
+                except Exception as exc:  # noqa: BLE001
+                    res = {"seq": seq, "ok": False, "error": f"{type(exc).__name__}: {exc}", "timeout": isinstance(exc, TimeoutError)}
+                res["warmup"] = seq < cfg.warmup
+                results.append(res)
+            await asyncio.sleep(0.3)  # let the server notice the last closed connections
+
+        before = self.counters().get(cfg.transport, {})
         try:
-            await asyncio.wait_for(asyncio.gather(*(worker(i) for i in range(cfg.concurrency))), timeout=150)
+            if cfg.mode == "race":
+                await asyncio.wait_for(race_loop(), timeout=150)
+            elif cfg.mode == "abort":
+                await asyncio.wait_for(abort_loop(), timeout=150)
+            else:
+                await asyncio.wait_for(asyncio.gather(*(worker(i) for i in range(cfg.concurrency))), timeout=150)
             run.status = "completed"
         except asyncio.CancelledError:
             run.status = "canceled"
@@ -182,6 +229,17 @@ class TCPLabService:
             run.summary = summarize([r["total_ms"] for r in ok], errors=sum(1 for r in measured if not r["ok"] and not r.get("timeout")),
                                     timeouts=sum(1 for r in measured if r.get("timeout")))
             run.phase_medians = {m: (summarize([r[m] for r in ok if r.get(m) is not None])["median"]) for m in METRICS}
+            run.decision_summary = summarize([r["decision_to_response_ms"] for r in ok if r.get("decision_to_response_ms") is not None])
+            if cfg.mode == "race":
+                run.race = self._race_summary(ok)
+            if cfg.mode == "abort":
+                after = self.counters().get(cfg.transport, {})
+                run.abort = {
+                    "sent_incomplete": len(results),
+                    "discarded_by_server": after.get("discarded", 0) - before.get("discarded", 0),
+                    "acted_on_by_server": after.get("completed", 0) - before.get("completed", 0),
+                    "premature_commits": after.get("premature", 0) - before.get("premature", 0),
+                }
             first = next((r for r in ok), {})
             run.environment = {
                 "target": f"{self.host}:{port} (this process, loopback)",
@@ -205,6 +263,25 @@ class TCPLabService:
             )
 
     @staticmethod
+    def _race_summary(ok: list[dict[str, Any]]) -> dict[str, Any]:
+        n = len(ok)
+        pre = sum(1 for r in ok if r["winner"] == "pre_sent")
+        full = sum(1 for r in ok if r["winner"] == "full_payload")
+        by_order = {}
+        for first in (True, False):
+            sub = [r for r in ok if r["pre_first_scheduled"] is first]
+            by_order["pre_scheduled_first" if first else "full_scheduled_first"] = {
+                "trials": len(sub), "pre_sent_wins": sum(1 for r in sub if r["winner"] == "pre_sent")}
+        return {
+            "trials": n, "pre_sent_wins": pre, "full_payload_wins": full, "ties": n - pre - full,
+            "pre_sent_win_rate": (pre / n) if n else None,
+            "margin": summarize([r["margin_ms"] for r in ok]),
+            "pre_decision_to_accept": summarize([r["pre_decision_to_accept_ms"] for r in ok]),
+            "full_decision_to_accept": summarize([r["full_decision_to_accept_ms"] for r in ok]),
+            "by_scheduling_order": by_order,
+        }
+
+    @staticmethod
     def _notes(run: BenchmarkRun) -> list[str]:
         n = run.summary.get("n", 0)
         cfg = run.config
@@ -225,15 +302,45 @@ class TCPLabService:
                 "acknowledged, while the client delays that ACK. In development this was traced to uvicorn sockets created "
                 "without TCP_NODELAY (e.g. under --reload); this lab cannot confirm the cause per run without packet capture."
             )
-        if cfg.mode != "complete" and run.phase_medians.get("wait_final_byte_ms") is not None:
-            notes.append(f"Median time the server waited between holding {cfg.payload_size - 1} bytes and the final byte: {run.phase_medians['wait_final_byte_ms']:.3f} ms.")
+        if cfg.mode in ("split", "early_work") and run.decision_summary.get("median") is not None:
+            notes.append(
+                f"Decision → response (from the moment the final byte is sent): median {run.decision_summary['median']:.3f} ms. "
+                f"Total time {run.summary.get('median') or 0:.3f} ms also includes the {cfg.split_delay_ms:g} ms during which the first "
+                f"{cfg.payload_size - 1} bytes were already sitting at the server before the decision."
+            )
+        if cfg.mode == "race" and run.race:
+            r = run.race
+            m = r["margin"].get("median")
+            notes.append(
+                f"Same signal, two clients: the pre-sent order was accepted first in {r['pre_sent_wins']} of {r['trials']} trials"
+                + (f", by a median of {m:.3f} ms." if m is not None else ".")
+                + (" With server preparation, the pre-sent order's checks ran before the signal; the full payload's could only start after it arrived."
+                   if cfg.prep_ms else " With no server preparation, the only difference is sending 1 byte instead of 500 over loopback, so the margin is tiny and noisy.")
+            )
+            bo = r["by_scheduling_order"]
+            pf, ff = bo["pre_scheduled_first"], bo["full_scheduled_first"]
+            decided_by_order = pf["trials"] and ff["trials"] and pf["pre_sent_wins"] >= 0.9 * pf["trials"] and ff["pre_sent_wins"] <= 0.1 * ff["trials"]
+            if decided_by_order:
+                notes.append(
+                    "The winner simply followed which client this process happened to run first after the signal "
+                    f"(pre-sent won {pf['pre_sent_wins']}/{pf['trials']} when it went first, {ff['pre_sent_wins']}/{ff['trials']} when it went second). "
+                    "On loopback, sending 499 fewer bytes takes microseconds, less than scheduling noise. On a real network the extra bytes cost "
+                    "wire time and packets, and server-side pre-processing (try 10 ms of prep) is where front-loading wins decisively."
+                )
+            else:
+                notes.append("Which client the event loop wakes first alternates by a seeded coin flip; win rates for each order are reported to expose any bias.")
+        if cfg.mode == "abort" and run.abort:
+            a = run.abort
+            notes.append(f"Sent {a['sent_incomplete']} incomplete orders and abandoned them: the server discarded {a['discarded_by_server']} and acted on {a['acted_on_by_server']}.")
         return notes
 
     # ---- export ---------------------------------------------------------------
     CSV_COLS = ["run_id", "label", "transport", "mode", "connection", "payload_size", "split_delay_ms", "prep_ms_cfg", "proc_ms_cfg",
                 "tcp_nodelay_requested", "seq", "warmup", "ok", "error", "writes", "server_reads", "connect_ms", "first_write_ms",
                 "last_write_ms", "server_first_rx_ms", "server_prefix_ready_ms", "server_complete_ms", "prep_ms", "prep_overlapped",
-                "wait_final_byte_ms", "server_processing_ms", "complete_to_response_ms", "ttfb_ms", "response_spread_ms", "total_ms", "client_nodelay", "server_nodelay"]
+                "wait_final_byte_ms", "server_processing_ms", "complete_to_response_ms", "ttfb_ms", "response_spread_ms", "total_ms",
+                "decision_ms", "decision_to_accept_ms", "decision_to_response_ms", "aborted", "winner", "margin_ms", "pre_first_scheduled",
+                "pre_decision_to_accept_ms", "full_decision_to_accept_ms", "client_nodelay", "server_nodelay"]
 
     def csv(self, runs: list[BenchmarkRun]) -> str:
         buf = io.StringIO()

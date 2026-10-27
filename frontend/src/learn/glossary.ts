@@ -86,6 +86,7 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   tcp: { term: "TCP", topic: "Networking", simple: "The internet's reliable delivery service: it gets bytes to the other side, in order.", technical: "Connection-oriented byte stream; no message boundaries.", see: "/tcp-lab" },
   handshake: { term: "Handshake", topic: "Networking", simple: "The short greeting two computers exchange before they can talk.", technical: "SYN, SYN-ACK, ACK: about one round trip." },
   nagle: { term: "Nagle's algorithm", topic: "Networking", simple: "A TCP feature that waits briefly to bundle small writes together. TCP_NODELAY turns it off." },
+  front_loading: { term: "Front-loading (pre-sending)", topic: "Networking", simple: "Sending all of an order except its last byte before deciding to trade. If you trade, send the last byte; if not, drop the connection.", technical: "The server can parse and validate the partial message early, so decision → response only covers the last byte and finishing work.", see: "/tcp-lab" },
   percentile: { term: "Percentile (p50, p95, p99)", topic: "Networking", simple: "p95 = 95% of measurements were faster than this. p50 is the median.", see: "/tcp-lab" },
   api: { term: "API", topic: "Software", simple: "The menu of requests the backend understands, like “place an order” or “show the book”.", see: "/how-it-works" },
   backend: { term: "Backend", topic: "Software", simple: "The server program that holds the simulation and does all the calculations.", see: "/how-it-works" },

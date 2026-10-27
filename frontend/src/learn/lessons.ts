@@ -298,18 +298,22 @@ export const LESSONS: Lesson[] = [
   },
   {
     id: "tcp", level: 3, minutes: 7, title: "TCP, latency and measuring it properly",
-    summary: "TCP delivers a stream of bytes, not messages. Connection setup costs time; splitting a message rarely helps.",
+    summary: "TCP delivers a stream of bytes, not messages. Pre-sending all but the last byte of an order, and letting the server prepare it early, cuts the time from decision to trade.",
     body: [
       "TCP guarantees bytes arrive in order, but has no idea where one message ends. The application must frame messages (here, a length header).",
       "Opening a connection costs a round trip before any data flows. Reusing a connection avoids that cost.",
-      "Sending 499 bytes then 1 byte can't finish before the last byte arrives; only useful work done in the meantime can recover the delay.",
+      "Front-loading: send the first 499 bytes of an order before you know whether you'll trade. If you decide to trade, send the last byte; if not, close the connection and the server throws the incomplete message away.",
+      "What counts is decision → response. Time the 499 bytes spent waiting at the server happened before the decision, so it costs the trader nothing.",
+      "The biggest gain comes when the server parses and checks the first 499 bytes while waiting, so almost no work is left once the last byte lands. In a race on the same signal, the pre-sent order wins by roughly that preparation time.",
       "Latency must be measured as a distribution: look at the median and the tail (p95, p99), not one number.",
     ],
-    keyIdeas: ["Byte stream → framing needed", "Reuse connections", "Report percentiles"],
-    tryIt: { label: "Run the TCP comparison", to: "/tcp-lab", steps: ["Run the standard comparison.", "Compare cold vs pre-established connection.", "Compare split-with-prep-after vs useful early work."] },
+    keyIdeas: ["Byte stream → framing needed", "Reuse connections", "Front-load, prepare early", "Measure from the decision", "Report percentiles"],
+    tryIt: { label: "Run the TCP comparison", to: "/tcp-lab", steps: ["Run the standard comparison.", "Compare cold vs pre-established connection.", "Compare decision → response for prep-after vs useful early work.", "Look at the Race panels: who wins with and without server preparation?", "Check the Abort panel: no incomplete order was acted on."] },
     quiz: [
       { q: "Which removes the TCP handshake from a request's latency?", options: ["Splitting the message", "Reusing an open connection", "Turning off the server", "A bigger message"], answer: 1, why: "An existing connection has already done its handshake." },
       { q: "p95 latency is 3 ms. Meaning?", options: ["Average is 3 ms", "95% of requests were faster than 3 ms", "The fastest was 3 ms", "3% failed"], answer: 1, why: "A percentile is a threshold below which that share of measurements fall." },
+      { q: "A trader pre-sent 499 bytes of an order and then decides not to trade. What happens?", options: ["The order executes anyway", "They close the connection and the server discards the incomplete message", "The server fills in the last byte", "TCP retransmits it"], answer: 1, why: "A message is never acted on until it is complete; dropping the connection abandons it." },
+      { q: "Two traders act on the same signal. One pre-sent 499 bytes and the server pre-processed them; the other sends all 500. Who usually wins?", options: ["The full payload, because it's one write", "The pre-sent order, by about the server's preparation time", "Always a tie", "Whoever has the bigger message"], answer: 1, why: "The pre-sent order only needs its final byte and a little finishing work; the full payload still has to be parsed and checked from scratch." },
     ],
   },
 ];

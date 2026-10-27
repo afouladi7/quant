@@ -63,6 +63,12 @@ def build_container(settings: Settings) -> AppContainer:
     tcp_server = TCPBenchServer(settings.tcplab_host, settings.tcplab_port)
     tcplab = TCPLabService(bus, ids, settings.tcplab_host, lambda: tcp_server.port, settings.http_port)
     tcplab.on_finished = sink.record_benchmark
+    from app.tcplab.server import ECHO_STATS
+
+    tcplab.counters = lambda: {
+        "raw_tcp": {"discarded": tcp_server.discarded_incomplete, "completed": tcp_server.messages, "premature": tcp_server.premature_commits},
+        "http": {"discarded": ECHO_STATS["discarded_incomplete"], "completed": ECHO_STATS["completed"], "premature": 0},
+    }
     return AppContainer(
         settings=settings, ids=ids, events=events, bus=bus, sim=sim, idempotency=IdempotencyStore(), mm=mm, fx=fx,
         portfolio=portfolio, tcp_server=tcp_server, tcplab=tcplab, sink=sink, playground=Playground(bus, ids),

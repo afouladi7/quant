@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+
+from starlette.requests import ClientDisconnect
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -12,6 +14,7 @@ from app.core.errors import ApiError
 from app.core.jsonresp import jsonify
 from app.tcplab.client import BenchmarkConfig
 from app.tcplab.protocol import MAX_MESSAGE
+from app.tcplab.server import ECHO_STATS
 from app.tcplab.service import SUITE_STANDARD
 from app.tcplab.work import do_work
 from app.state import AppContainer, get_container
@@ -43,7 +46,18 @@ async def echo(request: Request) -> JSONResponse:
     first_rx = prefix_ns = None
     chunks = 0
     prep_task: asyncio.Task | None = None
-    async for chunk in request.stream():
+    stream = request.stream()
+    while True:
+        try:
+            chunk = await stream.__anext__()
+        except StopAsyncIteration:
+            break
+        except ClientDisconnect:
+            # The client sent part of the body, then closed the connection: abandoned, never processed.
+            ECHO_STATS["discarded_incomplete"] += 1
+            if prep_task is not None:
+                prep_task.cancel()
+            return JSONResponse({"aborted": True}, status_code=400)  # nobody is listening; nothing was processed
         if not chunk:
             continue
         now = time.monotonic_ns()
@@ -61,6 +75,7 @@ async def echo(request: Request) -> JSONResponse:
         raise ApiError(400, "incomplete_body", f"Received {len(buf)} of {length} bytes")
     prep_start, prep_end, _ = await prep_task if prep_task else await do_work(bytes(buf), prep)
     proc_start, proc_end, digest = await do_work(bytes(buf), proc)
+    ECHO_STATS["completed"] += 1
     return JSONResponse({
         "bytes": len(buf), "reads": chunks, "first_rx_ns": first_rx, "prefix_ready_ns": prefix_ns, "complete_ns": complete_ns,
         "prep_start_ns": prep_start, "prep_end_ns": prep_end, "proc_start_ns": proc_start, "proc_end_ns": proc_end,
@@ -73,8 +88,9 @@ async def info(c: Container) -> Response:
     return jsonify({
         "raw_tcp": {"host": c.tcplab.host, "port": c.tcp_server.port, "running": c.tcp_server.running,
                     "connections": c.tcp_server.connections, "messages": c.tcp_server.messages,
-                    "premature_commits": c.tcp_server.premature_commits},
-        "http": {"host": c.tcplab.host, "port": c.tcplab.http_port, "path": "/api/v1/tcp/echo"},
+                    "premature_commits": c.tcp_server.premature_commits, "discarded_incomplete": c.tcp_server.discarded_incomplete},
+        "http": {"host": c.tcplab.host, "port": c.tcplab.http_port, "path": "/api/v1/tcp/echo",
+                 "discarded_incomplete": ECHO_STATS["discarded_incomplete"]},
         "busy": c.tcplab.busy,
         "limits": {"max_trials": 500, "max_warmup": 50, "max_concurrency": 8, "max_payload": MAX_MESSAGE, "max_delay_ms": 1000,
                    "max_run_seconds": 120},

@@ -25,6 +25,15 @@ have arrived.
 | **B** split message | write 499 bytes, optional pause (0 ms allowed), write the final byte |
 | **C** pre-established connection | connect *before* the measured request; reuse it |
 | **D** useful early work | like B, but the server starts preparation work once 499 bytes are in |
+| **Race** | two pre-established connections act on the same signal: one has pre-sent 499 bytes and sends the last byte, the other sends all 500 |
+| **Abort** | send 499 bytes, pause, then close the connection without the last byte |
+
+For split messages the pause models the time **before the decision to trade**.
+Each trial records `decision_ms` (the moment the client decides: before a
+complete write, or just before the final byte) and reports
+`decision_to_response_ms` and `decision_to_accept_ms` (until the server has the
+whole message and has finished processing it). The UI defaults to decision →
+response; total time from the first byte is one click away.
 
 Cold-connection runs open a new TCP connection per trial and include the
 handshake (`connect_ms`) in the measured time; reused-connection runs establish
@@ -48,14 +57,34 @@ timestamps mark when the ASGI application *consumed* body chunks from
 uvicorn's buffer, not socket arrival; uvicorn may merge the 499- and 1-byte
 writes into one chunk.
 
-## 3. Why splitting 499 + 1 rarely helps
+## 3. Front-loading: pre-sending all but the last byte
 
-If the server must wait for the final byte, the request cannot complete before
-that byte arrives. Splitting therefore adds at least the pause between the two
-writes, plus a second write's overhead, and can trigger Nagle/delayed-ACK
-interactions (§5). It can only help if the server does **useful work** with the
-first 499 bytes while the last one is in flight (experiment D). That is
-overlapping computation with communication. TCP does not get faster.
+Traders often open a connection and send most of an order (for example an HTTP
+request missing its final byte) **before** they know whether they will trade.
+If they decide to trade, only the last byte has to travel. If they decide not
+to, they close the connection and the server discards the incomplete message.
+
+Measured from the first byte, a split message can never be faster than a
+complete one: the server still needs every byte. But that is the wrong clock.
+The 499 bytes were sent while the trader was still deciding, so the relevant
+latency is **decision → response**:
+
+- If the server waits for the full message before doing any work, front-loading
+  saves only the transfer of 499 bytes, which is tiny on a fast link.
+- If the server parses and validates the first 499 bytes while waiting
+  (experiment D), almost nothing is left to do when the last byte arrives.
+  Decision → response then drops by about the preparation time.
+
+**Race.** When two clients act on the same signal, the pre-sent order is
+accepted first whenever the server did real preparation work in advance, by a
+margin close to that work. With no server-side preparation the two are within
+a few microseconds on loopback, and the winner simply follows which client the
+process happened to run first; the lab reports wins for each scheduling order
+so this is visible rather than hidden.
+
+**Abort.** An incomplete message is never acted on. The servers count messages
+discarded because the connection closed before the final byte, and the lab
+checks that every aborted order was discarded and none was processed.
 
 ## 4. Connection establishment and persistent connections
 
@@ -109,22 +138,28 @@ dominates, and vice versa.
 
 ## 8. Example results (one machine, one day; yours will differ)
 
-Measured on 2026-10-25 with the Preset 5 suite, 40 trials each, TCP_NODELAY on,
-loopback, Fedora 44 workstation. Medians in milliseconds.
+Measured on 2026-10-27 on loopback, Fedora 44 workstation, TCP_NODELAY on,
+10 ms of server preparation where noted. Medians in milliseconds.
 
-| Experiment | Raw TCP (dev) | HTTP (backend container on kind) |
-|---|---|---|
-| A complete, cold connection | 0.79 | 2.57 |
-| C complete, pre-established | 0.25 | 1.23 |
-| B split 499+1, no pause | 0.27 | 1.26 |
-| B split, 20 ms pause, 10 ms prep after | 32.8 | 34.9 |
-| D split, 20 ms pause, 10 ms prep during | 22.4 | 23.4 |
+| Experiment (raw TCP) | Decision → response |
+|---|---|
+| Complete message, pre-established connection, 10 ms prep | 10.7 |
+| Pre-sent 499 bytes, server prepares after the last byte | 11.8 |
+| Pre-sent 499 bytes, server prepares while waiting | 0.95 |
 
-What these particular runs showed: a pre-established connection saved ~0.5 ms
-(raw) and ~1.3 ms (HTTP); an unpaused split cost almost nothing on loopback; the
-pause was paid in full; overlapping the 10 ms of preparation recovered ~10 ms of
-it. On a real network, connection setup costs at least one round trip, so the
-reuse benefit grows with distance.
+| Race on the same signal | Result |
+|---|---|
+| 10 ms server prep | pre-sent won 60/60; margin ≈ 11.4 ms (raw TCP), ≈ 13.1 ms (HTTP) |
+| No server prep | 30/60: decided by which client ran first, not by the bytes |
+
+| Abort | Result |
+|---|---|
+| Raw TCP and HTTP | 20/20 incomplete orders discarded, 0 acted on |
+
+What these runs showed: front-loading on its own saves little on a fast local
+link; front-loading plus server-side preparation cuts decision → response from
+about 11 ms to under 1 ms and wins every race on the same signal. On a real
+network the transfer saving grows with message size and link speed.
 
 ## 9. Safety boundaries
 

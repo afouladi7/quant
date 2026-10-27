@@ -474,3 +474,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 main > .page { width: 100%; }
 .panel-actions { margin-left: auto; }
 .chip, .qty-text { white-space: nowrap; }
+.race-bar { display: flex; height: 28px; border-radius: 8px; overflow: hidden; gap: 2px; margin: 6px 0 12px; }
+.race-bar span { display: flex; align-items: center; padding: 0 10px; font-size: .82rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; }
+.race-pre { background: var(--series-1); }
+.race-full { background: var(--series-2); }

@@ -21,6 +21,8 @@ from app.tcplab.work import do_work
 
 log = logging.getLogger(__name__)
 READ_SIZE = 65_536
+# Counters for the HTTP echo target (the raw TCP server keeps its own on the instance).
+ECHO_STATS = {"discarded_incomplete": 0, "completed": 0}
 
 
 class TCPBenchServer:
@@ -31,6 +33,7 @@ class TCPBenchServer:
         self.connections = 0
         self.messages = 0
         self.premature_commits = 0  # must always stay 0; exposed for verification
+        self.discarded_incomplete = 0  # connections closed mid-message: the order was abandoned, never acted on
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._handle, self.host, self.port, limit=READ_SIZE)
@@ -41,7 +44,13 @@ class TCPBenchServer:
     async def stop(self) -> None:
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
+            close_clients = getattr(self._server, "close_clients", None)  # Python 3.13+
+            if close_clients is not None:
+                close_clients()  # don't let an idle benchmark connection hold up shutdown
+            try:
+                await asyncio.wait_for(self._server.wait_closed(), timeout=5)
+            except TimeoutError:
+                log.warning("TCP lab server: connections still open after 5 s; continuing shutdown")
             self._server = None
 
     @property
@@ -79,6 +88,11 @@ class TCPBenchServer:
         while not asm.complete:
             chunk = await reader.read(READ_SIZE if asm.header is None else asm.header.total_len - asm.received)
             if not chunk:
+                if asm.received:
+                    # The client sent part of a message and then closed the connection: it decided not to trade.
+                    self.discarded_incomplete += 1
+                    if prep_task is not None:
+                        prep_task.cancel()
                 return None
             now = time.monotonic_ns()
             reads += 1

@@ -171,3 +171,83 @@ def test_http_echo_rejects_bad_framing(live_server: int) -> None:
     s.sendall(b"POST /api/v1/tcp/echo HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n")
     assert b" 400 " in s.recv(4096).split(b"\r\n")[0]
     s.close()
+
+
+# ---- front-loading: decision latency, abort and race ----------------------------------------
+def make_service(srv: TCPBenchServer) -> TCPLabService:
+    bus, ids, _ = make_bus()
+    svc = TCPLabService(bus, ids, "127.0.0.1", lambda: srv.port, 1)
+    svc.counters = lambda: {"raw_tcp": {"discarded": srv.discarded_incomplete, "completed": srv.messages, "premature": srv.premature_commits}}
+    return svc
+
+
+async def test_decision_latency_is_measured_from_the_final_byte() -> None:
+    srv = TCPBenchServer("127.0.0.1", 0)
+    await srv.start()
+    try:
+        cfg = BenchmarkConfig(mode="early_work", connection="reused", split_delay_ms=30, prep_ms=15, trials=1, warmup=0)
+        conn = await connect("127.0.0.1", srv.port, True)
+        r, conn = await run_trial(cfg, 1, "127.0.0.1", srv.port, conn)
+        assert r["decision_ms"] >= 30 - 1  # the decision came after the pre-sent bytes had waited
+        assert r["decision_to_response_ms"] < 5  # the 15 ms of prep was done before the decision
+        assert r["total_ms"] > 30  # total time includes the wait before the decision
+        assert r["prep_overlapped"]
+        await conn.close()
+    finally:
+        await srv.stop()
+
+
+async def test_abort_is_discarded_and_never_acted_on() -> None:
+    srv = TCPBenchServer("127.0.0.1", 0)
+    await srv.start()
+    svc = make_service(srv)
+    try:
+        run = svc.start(BenchmarkConfig(mode="abort", connection="cold", split_delay_ms=1, trials=8, warmup=0))
+        await svc._task  # noqa: SLF001
+        assert run.status == "completed"
+        assert run.abort == {"sent_incomplete": 8, "discarded_by_server": 8, "acted_on_by_server": 0, "premature_commits": 0}
+    finally:
+        await srv.stop()
+
+
+async def test_race_pre_sent_order_wins_when_server_prepares_early() -> None:
+    srv = TCPBenchServer("127.0.0.1", 0)
+    await srv.start()
+    svc = make_service(srv)
+    try:
+        run = svc.start(BenchmarkConfig(mode="race", connection="reused", split_delay_ms=15, prep_ms=8, trials=10, warmup=1))
+        await svc._task  # noqa: SLF001
+        r = run.race
+        assert r is not None and r["trials"] == 10
+        assert r["pre_sent_wins"] == 10  # checks done before the signal beat checks done after it, every time
+        assert r["margin"]["median"] > 5
+        assert r["full_decision_to_accept"]["median"] > r["pre_decision_to_accept"]["median"] + 5
+        orders = r["by_scheduling_order"]
+        assert orders["pre_scheduled_first"]["trials"] + orders["full_scheduled_first"]["trials"] == 10
+    finally:
+        await srv.stop()
+
+
+def test_race_and_abort_config_rules() -> None:
+    with pytest.raises(ValidationError):
+        BenchmarkConfig(mode="abort", connection="reused")
+    with pytest.raises(ValidationError):
+        BenchmarkConfig(mode="race", connection="cold")
+    with pytest.raises(ValidationError):
+        BenchmarkConfig(mode="race", connection="reused", concurrency=2)
+
+
+def test_http_abort_is_discarded(live_server: int) -> None:
+    from app.tcplab.client import run_abort_trial
+    from app.tcplab.server import ECHO_STATS
+
+    before = dict(ECHO_STATS)
+    cfg = BenchmarkConfig(transport="http", mode="abort", connection="cold", split_delay_ms=1, trials=1, warmup=0)
+    for i in range(3):
+        asyncio.run(run_abort_trial(cfg, i, "127.0.0.1", live_server))
+    for _ in range(50):
+        if ECHO_STATS["discarded_incomplete"] - before["discarded_incomplete"] == 3:
+            break
+        time.sleep(0.05)
+    assert ECHO_STATS["discarded_incomplete"] - before["discarded_incomplete"] == 3
+    assert ECHO_STATS["completed"] == before["completed"]

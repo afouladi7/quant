@@ -164,8 +164,21 @@ describe("TCP lab page", () => {
     config: { transport: "raw_tcp", mode: "split", connection: "reused", payload_size: 500, trials: 2, warmup: 0, split_delay_ms: 10, prep_ms: 0, server_processing_ms: 0, concurrency: 1, tcp_nodelay: true, timeout_ms: 5000 },
     started_ts: "2026-10-25T12:00:00Z", finished_ts: "2026-10-25T12:00:01Z",
     summary: { n: 2, attempted: 2, error_rate: 0, timeout_rate: 0, min: 10.1, max: 10.5, mean: 10.3, median: 10.3, stdev: 0.28, p25: 10.2, p75: 10.4, p90: null, p95: null, p99: null },
+    decision_summary: { n: 2, attempted: 2, error_rate: 0, timeout_rate: 0, min: 0.2, max: 0.4, mean: 0.3, median: 0.3, stdev: 0.1, p25: 0.25, p75: 0.35, p90: null, p95: null, p99: null },
+    race: null, abort: null,
     phase_medians: { total_ms: 10.3 }, environment: {}, notes: ["Small sample (n=2): treat the numbers as indicative only."], error: null,
-    trials: [{ seq: 0, ok: true, warmup: false, total_ms: 10.1 }, { seq: 1, ok: true, warmup: false, total_ms: 10.5 }],
+    trials: [{ seq: 0, ok: true, warmup: false, total_ms: 10.1, decision_to_response_ms: 0.2 }, { seq: 1, ok: true, warmup: false, total_ms: 10.5, decision_to_response_ms: 0.4 }],
+  };
+  const sm = (m: number) => ({ n: 4, attempted: 4, error_rate: 0, timeout_rate: 0, min: m, max: m, mean: m, median: m, stdev: 0, p25: m, p75: m, p90: null, p95: null, p99: null });
+  const raceRun = {
+    ...run, id: "RUN-000002-race", suite_id: "SUITE-1", description: "race · pre-sent vs full", config: { ...run.config, mode: "race", split_delay_ms: 20, prep_ms: 10 },
+    race: { trials: 4, pre_sent_wins: 4, full_payload_wins: 0, ties: 0, pre_sent_win_rate: 1, margin: sm(11.4), pre_decision_to_accept: sm(0.5), full_decision_to_accept: sm(11.9),
+      by_scheduling_order: { pre_scheduled_first: { trials: 2, pre_sent_wins: 2 }, full_scheduled_first: { trials: 2, pre_sent_wins: 2 } } },
+    notes: [], trials: [],
+  };
+  const abortRun = {
+    ...run, id: "RUN-000003-abrt", suite_id: "SUITE-1", description: "abort · cold", config: { ...run.config, mode: "abort", connection: "cold" },
+    abort: { sent_incomplete: 5, discarded_by_server: 5, acted_on_by_server: 0, premature_commits: 0 }, notes: [], trials: [],
   };
 
   it("starts a benchmark with the chosen settings and shows measured statistics", async () => {
@@ -180,9 +193,22 @@ describe("TCP lab page", () => {
     const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/tcp/benchmarks"))!;
     expect(post.body).toMatchObject({ transport: "raw_tcp", mode: "split", payload_size: 500, split_delay_ms: 10, tcp_nodelay: true });
     act(() => FakeWebSocket.last.emit({ kind: "event", event: { seq: 5, id: "E", ts: "2026-10-25T12:00:01Z", mono_ns: 1, type: "benchmark.completed", module: "tcplab", entity_id: run.id, correlation_id: run.id, message: "done", data: {} } }));
-    await waitFor(() => expect(screen.getAllByText("10.300").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("0.300").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("10.300").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Decision → response" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByText(/Small sample/).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "CSV" })).toHaveAttribute("href", "/api/v1/tcp/benchmarks/RUN-000001-eeee/csv");
+  });
+
+  it("shows who wins a race on the same signal and that aborted orders were discarded", async () => {
+    mockApi({
+      "GET /tcp/benchmarks": [raceRun, abortRun],
+      "GET /tcp/benchmarks/RUN-000002-race": raceRun,
+      "GET /tcp/benchmarks/RUN-000003-abrt": abortRun,
+    });
+    renderAt("/tcp-lab");
+    expect(await screen.findByText("4 / 4")).toBeInTheDocument();
+    expect(screen.getByText(/discarded 5 and acted on 0/)).toBeInTheDocument();
   });
 
   it("reports a busy/conflict error from the backend", async () => {
