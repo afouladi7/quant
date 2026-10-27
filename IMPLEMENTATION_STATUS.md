@@ -59,8 +59,8 @@ frontend typecheck clean and **30 passed**, manifests **21 passed**; `scripts/bu
 (both auto-detected the host's podman from inside the toolbox) → `scripts/verify.sh --url http://127.0.0.1:8080` **18 passed,
 1 skipped**; new endpoints and lesson routes answer through nginx.
 
-Not done: the published quay images (`components/images`) still pin the previous release; run `scripts/release-images.sh`
-to publish this version. Not re-tested on Kubernetes after these changes (no manifest changes were needed).
+Published as 0.2.0 (see "Published images"). Not re-tested on a Kubernetes cluster after these changes (no manifest
+changes were needed beyond the new image pins).
 
 ## Bugs found and fixed during verification
 
@@ -95,18 +95,21 @@ operations guide.
 
 Public repository `quay.io/allenfouladi/quant` (anonymous pull verified, digests confirmed):
 
-| Image | Tag | Digest |
-|---|---|---|
-| backend | `backend-0.1.0` | `sha256:be232b72bc03603624b795dfd932fb86d3bfbd986496b4377a1c86f774f5c598` |
-| frontend | `frontend-0.1.0` | `sha256:3b86857d42d5ea6302d07f5d120d3771330bb70a70f6e16feba33b7e151551dd` |
+| Image | Tag | Digest | |
+|---|---|---|---|
+| backend | `backend-0.2.0` | `sha256:34f71f7d245c884a9f37e2134056976c97ef8897308c37558b2cfbb1422f7146` | **current** (pinned) |
+| frontend | `frontend-0.2.0` | `sha256:fa4bb72703c34b0d3876fae684899026b92ca98068d7fbbdf166cc8b2581b3ca` | **current** (pinned) |
+| backend | `backend-0.1.0` | `sha256:be232b72bc03603624b795dfd932fb86d3bfbd986496b4377a1c86f774f5c598` | previous |
+| frontend | `frontend-0.1.0` | `sha256:3b86857d42d5ea6302d07f5d120d3771330bb70a70f6e16feba33b7e151551dd` | previous |
+
+0.2.0 was published with `scripts/release-images.sh` (its first run) on 2026-10-26, then pulled back by digest and run as
+UID 54321 with a read-only root: `/api/v1/info` reports 0.2.0, the new endpoints answer, `verify.sh` 18 passed / 1 skipped.
 
 ## Exact next steps
 
 1. On the home OpenShift cluster:
    ```bash
-   BACKEND_IMAGE=quay.io/allenfouladi/quant@sha256:be232b72bc03603624b795dfd932fb86d3bfbd986496b4377a1c86f774f5c598 \
-   FRONTEND_IMAGE=quay.io/allenfouladi/quant@sha256:3b86857d42d5ea6302d07f5d120d3771330bb70a70f6e16feba33b7e151551dd \
-     scripts/install.sh -n marketlab --create-namespace --with-postgres
+   scripts/install.sh --with-postgres   # deploys the pinned 0.2.0 images; no variables needed
    scripts/verify.sh -n marketlab -k
    ```
    Record the result here.
