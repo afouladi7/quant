@@ -79,8 +79,9 @@ Bugs found while doing this: the fund's fills against the broker's desk were not
 order-detail endpoint counted the desk's own follow-up trades as the fund's fills (now reported separately as `desk_trades`).
 
 Verified: backend **107 passed**, frontend **31 passed**, manifests **21 passed**; images built and run locally,
-`verify.sh` **18 passed, 1 skipped**; FX page screenshot checked. **Not yet published**: quay still holds 0.2.0 (the
-previous book model), so `scripts/install.sh` deploys 0.2.0 until `scripts/release-images.sh` publishes 0.3.0.
+`verify.sh` **18 passed, 1 skipped**; FX page screenshot checked. Published as 0.3.0 with `scripts/release-images.sh`,
+then pulled back by digest and run as UID 54321 with a read-only root: version 0.3.0, GBP/USD 1.33000, A/B/C-book roles,
+`verify.sh` 18 passed / 1 skipped.
 
 ## Bugs found and fixed during verification
 
@@ -117,8 +118,10 @@ Public repository `quay.io/allenfouladi/quant` (anonymous pull verified, digests
 
 | Image | Tag | Digest | |
 |---|---|---|---|
-| backend | `backend-0.2.0` | `sha256:34f71f7d245c884a9f37e2134056976c97ef8897308c37558b2cfbb1422f7146` | **current** (pinned) |
-| frontend | `frontend-0.2.0` | `sha256:fa4bb72703c34b0d3876fae684899026b92ca98068d7fbbdf166cc8b2581b3ca` | **current** (pinned) |
+| backend | `backend-0.3.0` | `sha256:d4b23695445c556e7c505d2c699a677c5c29a210c779f6d443d92a9aad997717` | **current** (pinned) |
+| frontend | `frontend-0.3.0` | `sha256:b7e0c50b0cd868a2a182696abf764c5b566f3175dc7be3694b2697f784a749a8` | **current** (pinned) |
+| backend | `backend-0.2.0` | `sha256:34f71f7d245c884a9f37e2134056976c97ef8897308c37558b2cfbb1422f7146` | previous |
+| frontend | `frontend-0.2.0` | `sha256:fa4bb72703c34b0d3876fae684899026b92ca98068d7fbbdf166cc8b2581b3ca` | previous |
 | backend | `backend-0.1.0` | `sha256:be232b72bc03603624b795dfd932fb86d3bfbd986496b4377a1c86f774f5c598` | previous |
 | frontend | `frontend-0.1.0` | `sha256:3b86857d42d5ea6302d07f5d120d3771330bb70a70f6e16feba33b7e151551dd` | previous |
 
@@ -129,7 +132,7 @@ UID 54321 with a read-only root: `/api/v1/info` reports 0.2.0, the new endpoints
 
 1. On the home OpenShift cluster:
    ```bash
-   scripts/install.sh --with-postgres   # deploys the pinned 0.2.0 images; no variables needed
+   scripts/install.sh   # deploys the pinned 0.3.0 images; add --with-postgres to keep history
    scripts/verify.sh -n marketlab -k
    ```
    Record the result here.
